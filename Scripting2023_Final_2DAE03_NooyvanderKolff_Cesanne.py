@@ -177,7 +177,7 @@ class Rollback(P4MayaModule):
         return "Rollback"
 
 
-class Checks(P4MayaModule):
+class CustomSave(P4MayaModule):
     def __init__(self, pref_handler, master_layout):
         super().__init__(master_layout)
         self.pref_handler = pref_handler
@@ -186,6 +186,9 @@ class Checks(P4MayaModule):
         pass
 
     def check_file(self, path):
+        pass
+
+    def __save_file(self):
         pass
 
     def _create_ui(self, master_layout):
@@ -245,7 +248,7 @@ class P4MayaFactory:
     def __create_modules(tabs_layout):
         pref_handler = PreferenceHandler()
         connector = Connector(pref_handler, tabs_layout)
-        checks = Checks(pref_handler, tabs_layout)
+        checks = CustomSave(pref_handler, tabs_layout)
         changelog = ChangeLog(checks, tabs_layout)
         rollback = Rollback(tabs_layout)
 
