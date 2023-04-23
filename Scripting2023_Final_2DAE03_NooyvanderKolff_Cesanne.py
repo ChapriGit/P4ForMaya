@@ -78,6 +78,7 @@ class P4MayaModule(ABC):
         pass
 
 
+# TODO: Password stuff
 class Connector(P4MayaModule):
     """
     Initialises and checks the Perforce connection.
@@ -126,14 +127,16 @@ class Connector(P4MayaModule):
                 log_msg = f"The {incorrect_key} given does not exist. Please try again."
                 msg_type = MessageType.ERROR
         except P4Exception as inst:
-            log_msg = inst.value
+            log_msg = "\n".join(inst.errors)
+            if log_msg == "":
+                log_msg = "The server given does not exist. Please try again."
             msg_type = MessageType.ERROR
 
         self.log_connection(log_msg)
-        self._send_to_log(log_msg, msg_type)
 
         if msg_type is not MessageType.ERROR:
             self.__set_p4(True)
+            self._send_to_log(log_msg, msg_type)
 
     def __disconnect(self):
         self.__set_p4(False)
