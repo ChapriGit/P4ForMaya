@@ -88,6 +88,7 @@ class Connector(P4MayaModule):
     def __init__(self, pref_handler, master_layout):
         super().__init__(master_layout)
         self.__pref_handler = pref_handler
+        self.__log = []
 
     def set_handler(self, handler):
         self._handler = handler
@@ -113,8 +114,8 @@ class Connector(P4MayaModule):
         pass
 
     def _create_ui(self, master_layout):
-        self._ui = cmds.columnLayout(adj=True, p=master_layout, w=350)
-        form = cmds.formLayout()
+        self._ui = cmds.formLayout(p=master_layout)
+        form = cmds.formLayout(w=350)
         height = 20
         server_label = cmds.text(l="Server: ", h=height)
         self.__port = cmds.textField(h=height)
@@ -146,7 +147,7 @@ class Connector(P4MayaModule):
         cmds.menuItem(label='Workspace 02')
 
         buttons = cmds.rowLayout(nc=2)
-        cmds.button(l="Connect to P4", bgc=[0.4, 0.5, 0.8])
+        cmds.button(l="Connect to P4", bgc=[0.2, 0.85, 0.98], w=100)
         cmds.button(l="Disconnect")
 
         cmds.formLayout(form, e=True, af={(available_wsp_label, "left", margin_side), (wsp_menu, "right", margin_side),
@@ -154,6 +155,22 @@ class Connector(P4MayaModule):
                                           (buttons, "bottom", padding_top)},
                         ac={(available_wsp_label, "top", margin_top, self.__workspace),
                             (wsp_menu, "top", margin_top, available_wsp_label), (buttons, "top", margin_top, wsp_menu)})
+
+        label = cmds.text(l="Connection Log:", p=self._ui)
+        self.__log_display = cmds.scrollField(h=200, wordWrap=True, ed=False, p=self._ui)
+
+        cmds.formLayout(self._ui, e=True, af={(form, "top", 0), (self.__log_display, "bottom", padding_top),
+                                              (form, "left", 0), (form, "right", 0),
+                                              (self.__log_display, "left", 15), (self.__log_display, "right", 15),
+                                              (label, "left", 20)},
+                        ac={(self.__log_display, "top", 5, label), (label, "top", 5, form)})
+
+    def __update_log(self, log_message):
+        self.__log.append(">> " + log_message)
+        if len(self.__log) > 50:
+            self.__log.remove(0)
+        log = "\n\n".join(self.__log)
+        cmds.scrollField(self.__log_display, e=True, text=log)
 
     def get_pretty_name(self):
         return "Connect"
@@ -325,10 +342,15 @@ class P4MayaControl:
     """
     Base class of P4 for Maya
     """
-    def __init__(self, window, bar):
+    def __init__(self, window, layout, bar):
         self.p4 = P4()
         self.window = window
         self.bar = bar
+
+        row = cmds.rowLayout(p=layout, nc=2)
+        self.__connected_icon = cmds.iconTextButton(style="iconOnly", i="confirm.png", h=18, w=18, )
+        self.__connected_text = cmds.text(l="Connected")
+        cmds.formLayout(layout, e=True, af={(row, "bottom", 10), (row, "right", 10)})
 
     def open_window(self):
         cmds.showWindow(self.window)
@@ -338,6 +360,14 @@ class P4MayaControl:
 
     def send_to_log(self, log_message, msg_type):
         pass
+
+    def __set_connected(self, connected: bool):
+        if connected:
+            cmds.iconTextButton(self.__connected_icon, e=True, i="confirm.png")
+            cmds.text(self.__connected_text, e=True, l="Connected")
+        else:
+            cmds.iconTextButton(self.__connected_icon, e=True, i="SP_MessageBoxCritical.png")
+            cmds.text(self.__connected_text, e=True, l="Not Connected")
 
 
 class PreferenceHandler:
@@ -356,9 +386,9 @@ class P4MayaFactory:
     Creates the P4 For Maya Application.
     """
     def __init__(self):
-        window, modules = self.__create_window()
+        window, layout, modules = self.__create_window()
         bar = P4Bar()
-        controller = P4MayaControl(window, bar)
+        controller = P4MayaControl(window, layout, bar)
         bar.set_handler(controller)
 
         for m in modules:
@@ -378,7 +408,7 @@ class P4MayaFactory:
     def __create_window(cls):
         # window = cmds.window("P4MayaWindow", l="P4 Settings and Actions")
         window = cmds.window(title="P4 Settings and Actions", width=300, height=500, ret=True)
-        master_layout = cmds.formLayout()
+        master_layout = cmds.formLayout(w=350)
         tabs_layout = cmds.tabLayout(p=master_layout)
         cmds.formLayout(master_layout, e=True, af=[(tabs_layout, "top", 0),
                                                    (tabs_layout, "right", 0),
@@ -389,7 +419,7 @@ class P4MayaFactory:
             ui = m.get_ui()
             cmds.tabLayout(tabs_layout, e=True, tabLabel=(ui, m.get_pretty_name()))
 
-        return window, modules
+        return window, master_layout, modules
 
 
 P4MayaFactory()
