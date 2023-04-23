@@ -163,15 +163,17 @@ class Connector(P4MayaModule):
     def _create_ui(self, master_layout):
         self._ui = cmds.formLayout(p=master_layout)
         form = cmds.formLayout(w=350)
+
+        port, user, client, avail_clients = self.__get_default_values()
         height = 20
         server_label = cmds.text(l="Server: ", h=height)
-        self.__port = cmds.textField(h=height)
+        self.__port = cmds.textField(h=height, text=port)
         user_label = cmds.text(l="User: ", h=height)
-        self.__user = cmds.textField(h=height)
+        self.__user = cmds.textField(h=height, text=user)
         wsp_label = cmds.text(l="Workspace: ", h=height)
-        self.__workspace = cmds.textField(h=height)
+        self.__workspace = cmds.textField(h=height, text=client)
 
-        margin_side = 40
+        margin_side = 35
         margin_middle = 10
         margin_top = 5
         padding_top = 20
@@ -188,10 +190,11 @@ class Connector(P4MayaModule):
                             (wsp_label, "top", margin_top, user_label)})
 
         available_wsp_label = cmds.text(l="Available workspaces", align="left", h=height)
-        wsp_menu = cmds.optionMenu(h=height)
+        wsp_menu = cmds.optionMenu(h=height, w=230,
+                                   cc=lambda new_client: cmds.textField(self.__workspace, e=True, text=new_client))
         cmds.menuItem(label='')
-        cmds.menuItem(label='Workspace 01')
-        cmds.menuItem(label='Workspace 02')
+        for c in avail_clients:
+            cmds.menuItem(label=c)
 
         buttons = cmds.rowLayout(nc=2)
         cmds.button(l="Connect to P4", bgc=[0.2, 0.85, 0.98], w=100, c=lambda _: self.__connect())
@@ -211,6 +214,22 @@ class Connector(P4MayaModule):
                                               (self.__log_display, "left", 15), (self.__log_display, "right", 15),
                                               (label, "left", 20)},
                         ac={(self.__log_display, "top", 5, label), (label, "top", 5, form)})
+
+    def __get_default_values(self):
+        p4 = P4()
+        port = str(p4.env("P4PORT") or '')
+        user = str(p4.env("P4USER") or '')
+        client = ""
+        p4.connect()
+        avail_clients = p4.run("clients", "-u", user)
+        p4.disconnect()
+
+        clients = []
+        for c in avail_clients:
+            if c.get("Host") == p4.host:
+                clients.append(c.get("client"))
+
+        return port, user, client, clients
 
     def get_pretty_name(self):
         return "Connect"
