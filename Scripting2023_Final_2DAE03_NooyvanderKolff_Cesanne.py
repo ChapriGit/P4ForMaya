@@ -338,7 +338,7 @@ class P4Bar(object):
         colours = [[0.17, 0.17, 0.17], [0.88, 0.70, 0.30], [1, 0.48, 0.48]]
         cmds.textField(self.__log_field, e=True, bgc=colours[msg_type.value])
 
-        self.__update_log(log_message)
+        self.__update_log(log_message, msg_type)
 
     def __create_ui(self):
         self.__docked_window = cmds.window(title="P4 For Maya")
@@ -374,8 +374,8 @@ class P4Bar(object):
         cmds.columnLayout(adj=True)
         self.__log_display = cmds.scrollField(h=500, wordWrap=True, ed=False)
 
-    def __update_log(self, log_message):
-        self.__log.append(">> " + log_message)
+    def __update_log(self, log_message, msg_type):
+        self.__log.append(f">> [{msg_type.name}] " + log_message)
         if len(self.__log) > 50:
             self.__log.remove(0)
         log = "\n\n".join(self.__log)
