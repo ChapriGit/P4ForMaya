@@ -66,11 +66,8 @@ class P4MayaModule(ABC):
     def get_ui(self):
         return self._ui
 
-    def __get_p4(self):
-        pass
-
-    def __send_to_log(self, log_message, msg_type):
-        pass
+    def _send_to_log(self, log_message, msg_type):
+        self._handler.send_to_log(log_message, msg_type)
 
     @abstractmethod
     def _create_ui(self, master_layout):
@@ -92,23 +89,70 @@ class Connector(P4MayaModule):
 
     def set_handler(self, handler):
         self._handler = handler
-        self.__set_p4()
+        self.__set_p4(False)
+        self._handler.set_connect(self)
 
     def __connect(self):
-        pass
+        port = cmds.textField(self.__port, q=True, text=True)
+        user = cmds.textField(self.__user, q=True, text=True)
+        client = cmds.textField(self.__workspace, q=True, text=True)
+
+        if port == "" or user == "" or client == "":
+            self.log_connection("Please fill in all the fields.")
+            return
+
+        p4 = P4()  # Create the P4 instance
+        p4.port = port
+        p4.user = user
+        p4.client = client
+
+        incorrect_data = False
+        incorrect_key = ""
+
+        try:
+            p4.connect()
+            info = p4.run("info")
+            for key in info[0]:
+                if info[0][key] == "*unknown*":
+                    incorrect_data = True
+                    incorrect_key = "user" if key == "userName" else "workspace"
+                    break
+            p4.disconnect()
+
+            if not incorrect_data:
+                log_msg = f"Connected to P4 server {port} as {user} on {client}."
+                msg_type = MessageType.LOG
+            else:
+                log_msg = f"The {incorrect_key} given does not exist. Please try again."
+                msg_type = MessageType.ERROR
+        except P4Exception as inst:
+            log_msg = inst.value
+            msg_type = MessageType.ERROR
+
+        self.log_connection(log_msg)
+        self._send_to_log(log_msg, msg_type)
+
+        if msg_type is not MessageType.ERROR:
+            self.__set_p4(True)
 
     def __disconnect(self):
-        pass
+        self.__set_p4(False)
+        self.log_connection("Disconnected from P4.")
+        self._send_to_log("Disconnected from P4.", MessageType.LOG)
 
-    def __log_error(self, log_message):
-        pass
+    def log_connection(self, log_message):
+        self.__log.insert(0, ">> " + log_message)
+        if len(self.__log) > 50:
+            self.__log.remove(0)
+        log = "\n\n".join(self.__log)
+        cmds.scrollField(self.__log_display, e=True, text=log)
 
-    def check_connection(self):
-        pass
+    def __set_p4(self, connected):
+        port = cmds.textField(self.__port, q=True, text=True)
+        user = cmds.textField(self.__user, q=True, text=True)
+        client = cmds.textField(self.__workspace, q=True, text=True)
 
-    def __set_p4(self):
-        client = ""
-        self._handler.p4.client = client
+        self._handler.change_connection(port, user, client, connected)
 
     def __update_prefs(self):
         pass
@@ -147,8 +191,8 @@ class Connector(P4MayaModule):
         cmds.menuItem(label='Workspace 02')
 
         buttons = cmds.rowLayout(nc=2)
-        cmds.button(l="Connect to P4", bgc=[0.2, 0.85, 0.98], w=100)
-        cmds.button(l="Disconnect")
+        cmds.button(l="Connect to P4", bgc=[0.2, 0.85, 0.98], w=100, c=lambda _: self.__connect())
+        cmds.button(l="Disconnect", c=lambda _: self.__disconnect())
 
         cmds.formLayout(form, e=True, af={(available_wsp_label, "left", margin_side), (wsp_menu, "right", margin_side),
                                           (wsp_menu, "left", margin_side*2), (buttons, "right", margin_side),
@@ -164,13 +208,6 @@ class Connector(P4MayaModule):
                                               (self.__log_display, "left", 15), (self.__log_display, "right", 15),
                                               (label, "left", 20)},
                         ac={(self.__log_display, "top", 5, label), (label, "top", 5, form)})
-
-    def __update_log(self, log_message):
-        self.__log.append(">> " + log_message)
-        if len(self.__log) > 50:
-            self.__log.remove(0)
-        log = "\n\n".join(self.__log)
-        cmds.scrollField(self.__log_display, e=True, text=log)
 
     def get_pretty_name(self):
         return "Connect"
@@ -342,24 +379,32 @@ class P4MayaControl:
     """
     Base class of P4 for Maya
     """
-    def __init__(self, window, layout, bar):
+    def __init__(self, window, layout, bar: P4Bar):
         self.p4 = P4()
         self.window = window
-        self.bar = bar
+        self.__bar = bar
+        self.__connect = None
 
         row = cmds.rowLayout(p=layout, nc=2)
         self.__connected_icon = cmds.iconTextButton(style="iconOnly", i="confirm.png", h=18, w=18, )
         self.__connected_text = cmds.text(l="Connected")
         cmds.formLayout(layout, e=True, af={(row, "bottom", 10), (row, "right", 10)})
 
+    def set_connect(self, connect):
+        self.__connect = connect
+
     def open_window(self):
         cmds.showWindow(self.window)
 
-    def change_connection(self, p4):
-        pass
+    def change_connection(self, port, user, client, connected):
+        self.p4.port = port
+        self.p4.user = user
+        self.p4.client = client
+
+        self.__set_connected(connected)
 
     def send_to_log(self, log_message, msg_type):
-        pass
+        self.__bar.add_to_log(log_message, msg_type)
 
     def __set_connected(self, connected: bool):
         if connected:
@@ -368,6 +413,8 @@ class P4MayaControl:
         else:
             cmds.iconTextButton(self.__connected_icon, e=True, i="SP_MessageBoxCritical.png")
             cmds.text(self.__connected_text, e=True, l="Not Connected")
+
+        self.__bar.set_connected(connected)
 
 
 class PreferenceHandler:
@@ -418,6 +465,8 @@ class P4MayaFactory:
         for m in modules:
             ui = m.get_ui()
             cmds.tabLayout(tabs_layout, e=True, tabLabel=(ui, m.get_pretty_name()))
+
+        cmds.tabLayout(tabs_layout, e=True, mt=[2, 4])
 
         return window, master_layout, modules
 
