@@ -113,7 +113,7 @@ class Connector(P4MayaModule):
         pass
 
     def _create_ui(self, master_layout):
-        self._ui = cmds.columnLayout(adj=True, p=master_layout)
+        self._ui = cmds.columnLayout(adj=True, p=master_layout, w=350)
         form = cmds.formLayout()
         height = 20
         server_label = cmds.text(l="Server: ", h=height)
@@ -267,7 +267,11 @@ class P4Bar(object):
     def __create_ui(self):
         self.__docked_window = cmds.window(title="P4 For Maya")
         self.__ui = cmds.formLayout()
-        cmds.dockControl(content=self.__docked_window, a="bottom", allowedArea=["bottom", "top"], l="P4 For Maya")
+
+        if cmds.dockControl(self.__BAR_NAME, q=True, ex=True):
+            cmds.deleteUI(self.__BAR_NAME)
+        cmds.dockControl(self.__BAR_NAME, content=self.__docked_window, a="bottom", allowedArea=["bottom", "top"],
+                         l="P4 For Maya", ret=False)
 
         connected = cmds.rowLayout(nc=2)
         cmds.popupMenu(b=3)
@@ -373,7 +377,7 @@ class P4MayaFactory:
     @classmethod
     def __create_window(cls):
         # window = cmds.window("P4MayaWindow", l="P4 Settings and Actions")
-        window = cmds.window(title="P4 Settings and Actions", width=400, height=500, ret=True)
+        window = cmds.window(title="P4 Settings and Actions", width=300, height=500, ret=True)
         master_layout = cmds.formLayout()
         tabs_layout = cmds.tabLayout(p=master_layout)
         cmds.formLayout(master_layout, e=True, af=[(tabs_layout, "top", 0),
