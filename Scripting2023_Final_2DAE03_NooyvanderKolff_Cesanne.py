@@ -185,7 +185,7 @@ class CustomSave(P4MayaModule):
 # ############################################ DOCKABLE BAR ############################################## #
 ############################################################################################################
 
-
+# TODO: Open the actual settings window when pressing buttons
 class P4Bar(object):
     __BAR_NAME = "P4ForMaya"
 
@@ -198,6 +198,7 @@ class P4Bar(object):
         self.__log_field = ""
         self.__connected_icon = ""
         self.__connected_text = ""
+        self.__log = []
         self.__log_field = ""
         self.__log_display = ""
 
@@ -243,9 +244,8 @@ class P4Bar(object):
         cmds.text(l="P4:", w=50)
         self.__log_field = cmds.textField(ed=False, w=750, font="smallPlainLabelFont", text="test",
                                           bgc=[0.17, 0.17, 0.17])
-        cmds.iconTextButton(style="iconOnly", i="freeformOff.png", h=17, w=25,
+        cmds.iconTextButton(style="iconOnly", i="futurePulldownIcon.png", h=17, w=17,
                             c=self.__show_full_log)
-        # futurePulldownIcon
 
         cmds.formLayout(self.__ui, e=True, af={(log, "left", 0), (connected, "right", 10)})
 
@@ -253,11 +253,14 @@ class P4Bar(object):
     def __create_log_window(self):
         self.__log_window = cmds.window(w=400, h=500, title="P4 Log", ret=True)
         cmds.columnLayout(adj=True)
-        self.__log_display = cmds.textScrollList(h=500)
+        self.__log_display = cmds.scrollField(h=500, wordWrap=True, ed=False)
 
     def __update_log(self, log_message):
-        log = ">> " + log_message
-        cmds.textScrollList(self.__log_display, e=True, a=[log])
+        self.__log.append(">> " + log_message)
+        if len(self.__log) > 50:
+            self.__log.remove(0)
+        log = "\n\n".join(self.__log)
+        cmds.scrollField(self.__log_display, e=True, text=log)
 
     def __show_full_log(self):
         cmds.showWindow(self.__log_window)
