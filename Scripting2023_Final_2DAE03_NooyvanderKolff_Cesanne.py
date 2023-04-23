@@ -44,9 +44,9 @@ from maya import cmds
 
 
 class MessageType(Enum):
-    LOG = 1
-    WARNING = 2
-    ERROR = 3
+    LOG = 0
+    WARNING = 1
+    ERROR = 2
 
 ############################################################################################################
 # ############################################### MODULES ################################################ #
@@ -78,23 +78,6 @@ class P4MayaModule(ABC):
     @abstractmethod
     def get_pretty_name(self):
         pass
-
-
-class P4Bar(P4MayaModule):
-    def __init__(self, master_layout):
-        super().__init__(master_layout)
-
-    def set_connected(self, connected: bool):
-        pass
-
-    def __add_to_log(self, log_message):
-        pass
-
-    def _create_ui(self, master_layout):
-        self._ui = cmds.columnLayout(adj=True)
-
-    def get_pretty_name(self):
-        return "P4 For Maya"
 
 
 class Connector(P4MayaModule):
@@ -199,6 +182,96 @@ class CustomSave(P4MayaModule):
 
 
 ############################################################################################################
+# ############################################ DOCKABLE BAR ############################################## #
+############################################################################################################
+
+
+class P4Bar(object):
+    __BAR_NAME = "P4ForMaya"
+
+    def __init__(self):
+        self.__handler = None
+        self.__docked_window = self.__BAR_NAME
+        self.__log_window = ""
+        self.__ui = ""
+
+        self.__log_field = ""
+        self.__connected_icon = ""
+        self.__connected_text = ""
+        self.__log_field = ""
+        self.__log_display = ""
+
+        self.__create_ui()
+        self.__create_log_window()
+
+        self.__log_test()
+
+    def set_handler(self, handler):
+        self.__handler = handler
+
+    def set_connected(self, connected: bool):
+        if connected:
+            cmds.iconTextButton(self.__connected_icon, e=True, i="confirm.png")
+            cmds.text(self.__connected_text, e=True, l="Connected")
+        else:
+            cmds.iconTextButton(self.__connected_icon, e=True, i="SP_MessageBoxCritical.png")
+            cmds.text(self.__connected_text, e=True, l="Not Connected")
+
+    def add_to_log(self, log_message, msg_type: MessageType):
+        cmds.textField(self.__log_field, e=True, text=log_message)
+        colours = [[0.17, 0.17, 0.17], [0.88, 0.70, 0.30], [1, 0.48, 0.48]]
+        cmds.textField(self.__log_field, e=True, bgc=colours[msg_type.value])
+
+        self.__update_log(log_message)
+
+    def __create_ui(self):
+        self.__docked_window = cmds.window(title="P4 For Maya")
+        self.__ui = cmds.formLayout()
+        cmds.dockControl(content=self.__docked_window, a="bottom", allowedArea=["bottom", "top"], l="P4 For Maya")
+
+        connected = cmds.rowLayout(nc=2)
+        cmds.popupMenu(b=3)
+        cmds.menuItem(l="Change Connection")
+        cmds.menuItem(d=True)
+        cmds.menuItem(l="See Changelist")
+        cmds.menuItem(l="File History")
+        cmds.menuItem(l="Checks")
+        self.__connected_icon = cmds.iconTextButton(style="iconOnly", i="confirm.png", h=18, w=18)
+        self.__connected_text = cmds.text(l="Connected")
+
+        log = cmds.rowLayout(nc=3, p=self.__ui)
+        cmds.text(l="P4:", w=50)
+        self.__log_field = cmds.textField(ed=False, w=750, font="smallPlainLabelFont", text="test",
+                                          bgc=[0.17, 0.17, 0.17])
+        cmds.iconTextButton(style="iconOnly", i="freeformOff.png", h=17, w=25,
+                            c=self.__show_full_log)
+        # futurePulldownIcon
+
+        cmds.formLayout(self.__ui, e=True, af={(log, "left", 0), (connected, "right", 10)})
+
+    # TODO: Make it scaleable/Copyable/whatever :P
+    def __create_log_window(self):
+        self.__log_window = cmds.window(w=400, h=500, title="P4 Log", ret=True)
+        cmds.columnLayout(adj=True)
+        self.__log_display = cmds.textScrollList(h=500)
+
+    def __update_log(self, log_message):
+        log = ">> " + log_message
+        cmds.textScrollList(self.__log_display, e=True, a=[log])
+
+    def __show_full_log(self):
+        cmds.showWindow(self.__log_window)
+
+    def __log_test(self):
+        self.add_to_log("This is a warning, because warnings on line 500, I think. Not sure, because I didn't do "
+                        "anything", MessageType.WARNING)
+        self.add_to_log("Logging stuff here, yay!", MessageType.LOG)
+        self.add_to_log("More logging, logging is fun", MessageType.LOG)
+        self.add_to_log("WARNIIIIIING, line 4954, in file khdfg/dfg/dfg/h/dfg.ma, have fun", MessageType.WARNING)
+        self.add_to_log("Last log, I swear", MessageType.LOG)
+
+
+############################################################################################################
 # ############################################# CONTROLLERS ############################################## #
 ############################################################################################################
 
@@ -220,6 +293,9 @@ class P4MayaControl:
     def send_to_log(self, log_message, msg_type):
         pass
 
+    def set_p4(self):
+        pass
+
 
 class PreferenceHandler:
     def __init__(self):
@@ -238,8 +314,9 @@ class P4MayaFactory:
     """
     def __init__(self):
         window, modules = self.__create_window()
-        bar = P4Bar("")
+        bar = P4Bar()
         controller = P4MayaControl(window, bar)
+        bar.set_handler(controller)
 
         for m in modules:
             m.set_handler(controller)
