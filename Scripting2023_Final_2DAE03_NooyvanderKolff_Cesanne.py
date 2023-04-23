@@ -118,6 +118,7 @@ class Connector(P4MayaModule):
                     incorrect_data = True
                     incorrect_key = "user" if key == "userName" else "workspace"
                     break
+            print(p4.run("login", "-s"))
             p4.disconnect()
 
             if not incorrect_data:
@@ -134,9 +135,8 @@ class Connector(P4MayaModule):
 
         self.log_connection(log_msg)
 
-        if msg_type is not MessageType.ERROR:
-            self.__set_p4(True)
-            self._send_to_log(log_msg, msg_type)
+        self.__set_p4(msg_type is not MessageType.ERROR)
+        self._send_to_log(log_msg, msg_type)
 
     def __disconnect(self):
         self.__set_p4(False)
