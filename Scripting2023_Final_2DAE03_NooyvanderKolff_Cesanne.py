@@ -37,7 +37,8 @@ P4 For Maya: Automatic adding and checking out of Perforce Maya files from withi
         - Get Latest of file
 
 """
-
+import json
+import os
 from abc import ABC, abstractmethod
 from enum import Enum
 from P4 import P4, P4Exception
@@ -118,7 +119,7 @@ class Connector(P4MayaModule):
                     incorrect_data = True
                     incorrect_key = "user" if key == "userName" else "workspace"
                     break
-            print(p4.run("login", "-s"))
+            p4.run("login", "-s")
             p4.disconnect()
 
             if not incorrect_data:
@@ -438,16 +439,59 @@ class P4MayaControl:
 
         self.__bar.set_connected(connected)
 
+    def p4_connect(self):
+        try:
+            self.p4.connect()
+            self.p4.run("login", "-s")
+        except P4Exception as inst:
+            log_msg = "\n".join(inst.errors)
+            if log_msg == "":
+                log_msg = "The server given does not exist. Please try again."
+            self.send_to_log(log_msg, MessageType.ERROR)
+            self.__connect.log_connection(log_msg)
+
+    def p4_release(self):
+        try:
+            self.p4.disconnect()
+        except P4Exception:
+            # Was not connected
+            pass
+
 
 class PreferenceHandler:
-    def __init__(self):
-        self.pref_file = ""
+    __PREF_FILE_NAME = "P4ForMaya_Preferences.txt"
+    __OPTION_VAR_NAME = "P4ForMaya_Preferences_Location"
 
-    def load_pref(self, class_key, var_key):
-        pass
+    def __init__(self):
+        self.__pref_file = ""
+        self.__preferences = {}
+
+    def get_pref(self, class_key, var_key):
+        class_prefs = self.__preferences.get(class_key, {})
+        return class_prefs.get(var_key, None)
 
     def set_pref(self, class_key, var_key, value):
-        pass
+        class_prefs = self.__preferences.get(class_key, {})
+        class_prefs.update({var_key: value})
+        self.__preferences.update({class_key: class_prefs})
+
+    def save_pref(self):
+        path = cmds.internalVar(upd=True)
+        file = os.path.join(path, self.__PREF_FILE_NAME)
+        with open(file, "w") as f:
+            f.write(json.dumps(self.__preferences))
+
+        # Create a variable for the file location to find it back upon restart.
+        cmds.optionVar(sv=(self.__OPTION_VAR_NAME, file))
+
+    def __load_pref(self):
+        if cmds.optionVar(ex=self.__OPTION_VAR_NAME):
+            path = cmds.optionVar(q=self.__OPTION_VAR_NAME)
+
+            # if found, then load in the preferences saved.
+            if os.path.exists(path):
+                with open(path, "r") as f:
+                    self.__preferences = json.loads(f.readline())
 
 
 class P4MayaFactory:
