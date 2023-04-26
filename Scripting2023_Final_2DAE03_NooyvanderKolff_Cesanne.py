@@ -38,11 +38,13 @@ P4 For Maya: Automatic adding and checking out of Perforce Maya files from withi
 
 """
 import json
+
 import os
 from abc import ABC, abstractmethod
 from enum import Enum
 from P4 import P4, P4Exception
 from maya import cmds
+import maya.OpenMaya as om
 
 
 class MessageType(Enum):
@@ -221,14 +223,16 @@ class Connector(P4MayaModule):
         port = str(p4.env("P4PORT") or '')
         user = str(p4.env("P4USER") or '')
         client = ""
-        p4.connect()
-        avail_clients = p4.run("clients", "-u", user)
-        p4.disconnect()
-
-        clients = []
-        for c in avail_clients:
-            if c.get("Host") == p4.host:
-                clients.append(c.get("client"))
+        try:
+            p4.connect()
+            avail_clients = p4.run("clients", "-u", user)
+            p4.disconnect()
+            clients = []
+            for c in avail_clients:
+                if c.get("Host") == p4.host:
+                    clients.append(c.get("client"))
+        except P4Exception:
+            clients = ["Please login to P4."]
 
         return port, user, client, clients
 
@@ -281,6 +285,12 @@ class CustomSave(P4MayaModule):
     def __init__(self, pref_handler, master_layout):
         super().__init__(master_layout)
         self.pref_handler = pref_handler
+        self.__cb_id = 0
+        self.__create_callbacks()
+
+    def set_handler(self, handler):
+        self._handler = handler
+        self._handler.manage_callback(self.__cb_id)
 
     def check_open_file(self):
         pass
@@ -297,6 +307,58 @@ class CustomSave(P4MayaModule):
     def get_pretty_name(self):
         return "Checks"
 
+    @staticmethod
+    def p4_exists(p4, path):
+        try:
+            p4.run("files", path)
+            return True
+        except P4Exception:
+            return False
+
+    @staticmethod
+    def p4_in_workspace(p4, path):
+        try:
+            p4.run("where", path)
+            return True
+        except P4Exception:
+            return False
+
+    def __intercept_save(self, ret_code):
+        continue_save = True
+        if self._handler.is_connected():
+            string_key = "s_TfileIOStrings.rFileOpCancelledByUser"
+            string_default = "File operation cancelled by user supplied callback."
+
+            try:
+                self._handler.p4_connect()
+                p4 = self._handler.p4
+
+                file = cmds.file(q=True, sn=True)
+                dir_name = os.path.dirname(file)
+                if self.p4_in_workspace(p4, dir_name):
+                    if not self.p4_exists(p4, file):
+                        p4.run("add", file)
+                    else:
+                        p4.run("edit", file)
+                self._handler.p4_release()
+
+            except P4Exception as inst:
+                message = inst.errors
+                if message == "":
+                    message = inst.warnings
+                self._handler.send_to_log(message, MessageType.ERROR)
+                string_error = f"Saving canceled. \n {message}"
+                continue_save = False
+
+            message = string_error if not continue_save else string_default
+            cmds.displayString(string_key, replace=True, value=message)
+
+        om.MScriptUtil.setBool(ret_code, continue_save)
+
+    def __create_callbacks(self):
+        self.__cb_id = om.MSceneMessage.addCheckCallback(om.MSceneMessage.kBeforeSaveCheck,
+                                                         lambda ret_code, client_data: self.__intercept_save(ret_code))
+
 
 ############################################################################################################
 # ############################################ DOCKABLE BAR ############################################## #
@@ -305,6 +367,7 @@ class CustomSave(P4MayaModule):
 # TODO: Open the actual settings window when pressing buttons
 class P4Bar(object):
     __BAR_NAME = "P4ForMaya"
+    __WINDOW_NAME = "P4ForMaya_Window"
 
     def __init__(self):
         self.__handler = None
@@ -341,14 +404,20 @@ class P4Bar(object):
 
         self.__update_log(log_message, msg_type)
 
-    def __create_ui(self):
-        self.__docked_window = cmds.window(title="P4 For Maya")
-        self.__ui = cmds.formLayout()
+    def manage_callbacks(self, cb_id):
+        cmds.dockControl(self.__docked_control, e=True, cc=lambda: om.MSceneMessage.removeCallback(cb_id))
 
+    def __create_ui(self):
         if cmds.dockControl(self.__BAR_NAME, q=True, ex=True):
             cmds.deleteUI(self.__BAR_NAME)
-        cmds.dockControl(self.__BAR_NAME, content=self.__docked_window, a="bottom", allowedArea=["bottom", "top"],
-                         l="P4 For Maya", ret=False)
+        if cmds.window(self.__WINDOW_NAME, q=True, ex=True):
+            cmds.deleteUI(self.__WINDOW_NAME)
+
+        self.__docked_window = cmds.window(self.__WINDOW_NAME, title="P4 For Maya")
+        self.__ui = cmds.formLayout()
+
+        self.__docked_control = cmds.dockControl(self.__BAR_NAME, content=self.__docked_window, a="bottom",
+                                                 allowedArea=["bottom", "top"], l="P4 For Maya", ret=False)
 
         connected = cmds.rowLayout(nc=2)
         cmds.popupMenu(b=3)
@@ -407,6 +476,8 @@ class P4MayaControl:
         self.window = window
         self.__bar = bar
         self.__connect = None
+        self.__connected = False
+        self.__callbacks = []
 
         row = cmds.rowLayout(p=layout, nc=2)
         self.__connected_icon = cmds.iconTextButton(style="iconOnly", i="confirm.png", h=18, w=18, )
@@ -419,6 +490,11 @@ class P4MayaControl:
     def open_window(self):
         cmds.showWindow(self.window)
 
+    # TODO: Maybe at some point this will be properly managed
+    def manage_callback(self, cb_id):
+        self.__callbacks.append(cb_id)
+        self.__bar.manage_callbacks(cb_id)
+
     def change_connection(self, port, user, client, connected):
         self.p4.port = port
         self.p4.user = user
@@ -429,6 +505,9 @@ class P4MayaControl:
     def send_to_log(self, log_message, msg_type):
         self.__bar.add_to_log(log_message, msg_type)
 
+    def is_connected(self):
+        return self.__connected
+
     def __set_connected(self, connected: bool):
         if connected:
             cmds.iconTextButton(self.__connected_icon, e=True, i="confirm.png")
@@ -438,6 +517,7 @@ class P4MayaControl:
             cmds.text(self.__connected_text, e=True, l="Not Connected")
 
         self.__bar.set_connected(connected)
+        self.__connected = connected
 
     def p4_connect(self):
         try:
