@@ -81,7 +81,7 @@ class P4MayaModule(ABC):
         pass
 
 
-# TODO: Password stuff
+# TODO: Password stuff + Refresh button for after logging in to P4/after reopening window
 class Connector(P4MayaModule):
     """
     Initialises and checks the Perforce connection.
@@ -199,6 +199,8 @@ class Connector(P4MayaModule):
         for c in avail_clients:
             cmds.menuItem(label=c)
 
+        cmds.optionMenu(wsp_menu, e=True, bsp=lambda _: self.__refresh_workspaces(wsp_menu))
+
         buttons = cmds.rowLayout(nc=2)
         cmds.button(l="Connect to P4", bgc=[0.2, 0.85, 0.98], w=100, c=lambda _: self.__connect())
         cmds.button(l="Disconnect", c=lambda _: self.__disconnect())
@@ -220,8 +222,12 @@ class Connector(P4MayaModule):
 
     def __get_default_values(self):
         p4 = P4()
+
         port = str(p4.env("P4PORT") or '')
         user = str(p4.env("P4USER") or '')
+        p4.port = port
+        p4.user = user
+
         client = ""
         try:
             p4.connect()
@@ -235,6 +241,27 @@ class Connector(P4MayaModule):
             clients = ["Please login to P4."]
 
         return port, user, client, clients
+
+    def __refresh_workspaces(self, dropdown):
+        p4 = P4()
+        p4.port = cmds.textField(self.__port, q=True, text=True)
+        p4.user = cmds.textField(self.__user, q=True, text=True)
+
+        try:
+            p4.connect()
+            avail_clients = p4.run("clients", "-u", p4.user)
+            p4.disconnect()
+            clients = []
+            for c in avail_clients:
+                if c.get("Host") == p4.host:
+                    clients.append(c.get("client"))
+        except P4Exception:
+            clients = ["Please login to P4."]
+
+        cmds.optionMenu(dropdown, e=True, dai=True)
+        cmds.menuItem(label='', p=dropdown)
+        for c in clients:
+            cmds.menuItem(label=c, p=dropdown)
 
     def get_pretty_name(self):
         return "Connect"
@@ -328,6 +355,7 @@ class CustomSave(P4MayaModule):
         if self._handler.is_connected():
             string_key = "s_TfileIOStrings.rFileOpCancelledByUser"
             string_default = "File operation cancelled by user supplied callback."
+            string_error = "Saving Canceled for Unknown Reasons."
 
             try:
                 self._handler.p4_connect()
@@ -583,6 +611,7 @@ class P4MayaFactory:
         bar = P4Bar()
         controller = P4MayaControl(window, layout, bar)
         bar.set_handler(controller)
+        self.window = window
 
         for m in modules:
             m.set_handler(controller)
@@ -617,4 +646,4 @@ class P4MayaFactory:
         return window, master_layout, modules
 
 
-P4MayaFactory()
+factory = P4MayaFactory()
