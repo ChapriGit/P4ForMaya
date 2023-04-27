@@ -41,10 +41,13 @@ import json
 
 import os
 from abc import ABC, abstractmethod
+from datetime import datetime
 from enum import Enum
 from P4 import P4, P4Exception
-from maya import cmds, OpenMaya as om
+from maya import cmds, OpenMaya as Om
 
+
+BLUE_COLOUR = [0.2, 0.85, 0.98]
 
 class MessageType(Enum):
     LOG = 0
@@ -168,7 +171,7 @@ class Connector(P4MayaModule):
 
     def _create_ui(self, master_layout):
         self._ui = cmds.formLayout(p=master_layout)
-        form = cmds.formLayout(w=350)
+        form = cmds.formLayout(w=300)
 
         port, user, client, avail_clients = self.__get_default_values()
         height = 20
@@ -205,7 +208,7 @@ class Connector(P4MayaModule):
         cmds.optionMenu(wsp_menu, e=True, bsp=lambda _: self.__refresh_workspaces(wsp_menu))
 
         buttons = cmds.rowLayout(nc=2)
-        cmds.button(l="Connect to P4", bgc=[0.2, 0.85, 0.98], w=100, c=lambda _: self.__connect())
+        cmds.button(l="Connect to P4", bgc=BLUE_COLOUR, w=100, c=lambda _: self.__connect())
         cmds.button(l="Disconnect", c=lambda _: self.__disconnect())
 
         cmds.formLayout(form, e=True, af={(available_wsp_label, "left", margin_side), (wsp_menu, "right", margin_side),
@@ -285,10 +288,69 @@ class ChangeLog(P4MayaModule):
         pass
 
     def _create_ui(self, master_layout):
-        self._ui = cmds.columnLayout(adj=True, p=master_layout)
+        self._ui = cmds.formLayout(p=master_layout, w=200)
+        margin_side = 20
+
+        changelist_label = cmds.text(l="Current Changelist: ", fn="boldLabelFont")
+        changelist_nr = cmds.text(l="000000", fn="fixedWidthFont")
+        refresh_button = cmds.button(l="Refresh", w=70)
+        cmds.formLayout(self._ui, e=True, af={(changelist_label, "left", margin_side + 5),
+                                              (refresh_button, "right", margin_side), (changelist_label, "top", 20),
+                                              (changelist_nr, "top", 19)},
+                        ac=(changelist_nr, "left", 5, changelist_label))
+
+        table = self.__create_table()
+        cmds.formLayout(self._ui, e=True, af={(table, "left", margin_side), (table, "right", margin_side)},
+                        ac={(refresh_button, "top", 10, table), (table, "top", 10, changelist_label)})
+
+        cmds.setParent(self._ui)
+        desc_label = cmds.text(l="Description:")
+        self.__commit_msg = cmds.scrollField(h=100)
+        submit_button = cmds.button(w=100, bgc=BLUE_COLOUR, l="Submit")
+        cmds.formLayout(self._ui, e=True, af={(desc_label, "left", margin_side + 5),
+                                              (submit_button, "right", margin_side),
+                                              (self.__commit_msg, "left", margin_side),
+                                              (self.__commit_msg, "right", margin_side),
+                                              (submit_button, "bottom", 10)},
+                        ac={(desc_label, "top", 5, refresh_button), (self.__commit_msg, "top", 5, desc_label),
+                            (submit_button, "top", 10, self.__commit_msg)})
+
+    def __create_table(self):
+        table = cmds.scrollLayout(vsb=True, cr=True, h=200, bgc=[0.22, 0.22, 0.22])
+        cmds.columnLayout(adj=True, cat=["right", 5])
+        cmds.rowColumnLayout(nc=4, adj=3, cw=[(1, 20), (2, 40), (4, 90)], bgc=[0.17, 0.17, 0.17],
+                             cat=[(1, "left", 5)], cs=[(1, 5), (2, 5), (3, 5), (4, 5)], rs=(1, 5))
+        cmds.checkBox(l="")
+        cmds.text(l="")
+        cmds.text(l="Path", al="left")
+        cmds.text(l="Last Edited", al="left")
+
+        cmds.setParent("..")
+
+        cmds.rowColumnLayout(nc=4, adj=3, cw=[(1, 20), (2, 40), (4, 90)], cat=[(1, "left", 5)],
+                             cs=[(1, 5), (2, 5), (3, 5), (4, 5)])
+        cmds.checkBox(l="")
+        cmds.text(l="Add")
+        cmds.textField(text="C:\Developer\SourceArt\SM_Coffee.ma", ed=False)
+        now = datetime.now()
+        dt_string = now.strftime("%d/%m/%Y %H:%M")
+        cmds.text(l=dt_string)
+
+        cmds.checkBox(l="")
+        cmds.text(l="Edit")
+        cmds.textField(text="C:\Developer\SourceArt\SM_Coffee.ma", ed=False)
+        now = datetime.now()
+        dt_string = now.strftime("%d/%m/%Y %H:%M")
+        cmds.text(l=dt_string)
+
+        return table
+
+    @staticmethod
+    def edit_cell():
+        return 1
 
     def get_pretty_name(self):
-        return "Changelog"
+        return "Changelist"
 
 
 class Rollback(P4MayaModule):
@@ -384,10 +446,10 @@ class CustomSave(P4MayaModule):
             message = string_error if not continue_save else string_default
             cmds.displayString(string_key, replace=True, value=message)
 
-        om.MScriptUtil.setBool(ret_code, continue_save)
+        Om.MScriptUtil.setBool(ret_code, continue_save)
 
     def __create_callbacks(self):
-        self.__cb_id = om.MSceneMessage.addCheckCallback(om.MSceneMessage.kBeforeSaveCheck,
+        self.__cb_id = Om.MSceneMessage.addCheckCallback(Om.MSceneMessage.kBeforeSaveCheck,
                                                          lambda ret_code, client_data: self.__intercept_save(ret_code))
 
 
@@ -436,7 +498,7 @@ class P4Bar(object):
         self.__update_log(log_message, msg_type)
 
     def manage_callbacks(self, cb_id):
-        cmds.dockControl(self.__docked_control, e=True, cc=lambda: om.MSceneMessage.removeCallback(cb_id))
+        cmds.dockControl(self.__docked_control, e=True, cc=lambda: Om.MSceneMessage.removeCallback(cb_id))
 
     def __create_ui(self):
         if cmds.dockControl(self.__BAR_NAME, q=True, ex=True):
@@ -633,7 +695,7 @@ class P4MayaFactory:
     @classmethod
     def __create_window(cls):
         # window = cmds.window("P4MayaWindow", l="P4 Settings and Actions")
-        window = cmds.window(title="P4 Settings and Actions", width=300, height=500, ret=True)
+        window = cmds.window(title="P4 Settings and Actions", width=350, height=500, ret=True)
         master_layout = cmds.formLayout(w=350)
         tabs_layout = cmds.tabLayout(p=master_layout)
         cmds.formLayout(master_layout, e=True, af=[(tabs_layout, "top", 0),
