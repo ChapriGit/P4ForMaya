@@ -43,8 +43,7 @@ import os
 from abc import ABC, abstractmethod
 from enum import Enum
 from P4 import P4, P4Exception
-from maya import cmds
-import maya.OpenMaya as om
+from maya import cmds, OpenMaya as om
 
 
 class MessageType(Enum):
@@ -81,14 +80,16 @@ class P4MayaModule(ABC):
         pass
 
 
-# TODO: Password stuff + Refresh button for after logging in to P4/after reopening window
+# TODO: Option to log in on Password wrong error?
 class Connector(P4MayaModule):
     """
     Initialises and checks the Perforce connection.
     """
+    __NAME = "CONNECTOR"
+
     def __init__(self, pref_handler, master_layout):
-        super().__init__(master_layout)
         self.__pref_handler = pref_handler
+        super().__init__(master_layout)
         self.__log = []
 
     def set_handler(self, handler):
@@ -158,10 +159,12 @@ class Connector(P4MayaModule):
         user = cmds.textField(self.__user, q=True, text=True)
         client = cmds.textField(self.__workspace, q=True, text=True)
 
-        self._handler.change_connection(port, user, client, connected)
+        if connected:
+            self.__pref_handler.set_pref(self.__NAME, "P4PORT", port)
+            self.__pref_handler.set_pref(self.__NAME, "P4USER", user)
+            self.__pref_handler.set_pref(self.__NAME, "P4CLIENT", client)
 
-    def __update_prefs(self):
-        pass
+        self._handler.change_connection(port, user, client, connected)
 
     def _create_ui(self, master_layout):
         self._ui = cmds.formLayout(p=master_layout)
@@ -223,12 +226,12 @@ class Connector(P4MayaModule):
     def __get_default_values(self):
         p4 = P4()
 
-        port = str(p4.env("P4PORT") or '')
-        user = str(p4.env("P4USER") or '')
+        port = self.__pref_handler.get_pref(self.__NAME, "P4PORT") or (p4.env("P4PORT") or '')
+        user = self.__pref_handler.get_pref(self.__NAME, "P4USER") or str(p4.env("P4USER") or '')
         p4.port = port
         p4.user = user
 
-        client = ""
+        client = self.__pref_handler.get_pref(self.__NAME, "P4CLIENT") or ''
         try:
             p4.connect()
             avail_clients = p4.run("clients", "-u", user)
@@ -459,8 +462,7 @@ class P4Bar(object):
 
         log = cmds.rowLayout(nc=3, p=self.__ui)
         cmds.text(l="P4:", w=50)
-        self.__log_field = cmds.textField(ed=False, w=750, font="smallPlainLabelFont", text="test",
-                                          bgc=[0.17, 0.17, 0.17])
+        self.__log_field = cmds.textField(ed=False, w=750, font="smallPlainLabelFont", bgc=[0.17, 0.17, 0.17])
         cmds.iconTextButton(style="iconOnly", i="futurePulldownIcon.png", h=17, w=17,
                             c=self.__show_full_log)
 
@@ -471,6 +473,7 @@ class P4Bar(object):
         self.__log_window = cmds.window(w=400, h=500, title="P4 Log", ret=True)
         cmds.columnLayout(adj=True)
         self.__log_display = cmds.scrollField(h=500, wordWrap=True, ed=False)
+        self.add_to_log("P4 For Maya started", MessageType.LOG)
 
     def __update_log(self, log_message, msg_type):
         self.__log.append(f">> [{msg_type.name}] " + log_message)
@@ -567,12 +570,13 @@ class P4MayaControl:
 
 
 class PreferenceHandler:
-    __PREF_FILE_NAME = "P4ForMaya_Preferences.txt"
+    __PREF_FILE_NAME = "P4ForMaya_Preferences.json"
     __OPTION_VAR_NAME = "P4ForMaya_Preferences_Location"
 
     def __init__(self):
         self.__pref_file = ""
         self.__preferences = {}
+        self.__load_pref()
 
     def get_pref(self, class_key, var_key):
         class_prefs = self.__preferences.get(class_key, {})
@@ -624,7 +628,7 @@ class P4MayaFactory:
         changelog = ChangeLog(checks, tabs_layout)
         rollback = Rollback(tabs_layout)
 
-        return connector, changelog, rollback, checks
+        return pref_handler, (connector, changelog, rollback, checks)
 
     @classmethod
     def __create_window(cls):
@@ -636,12 +640,13 @@ class P4MayaFactory:
                                                    (tabs_layout, "right", 0),
                                                    (tabs_layout, "left", 0)])
 
-        modules = cls.__create_modules(tabs_layout)
+        pref_handler, modules = cls.__create_modules(tabs_layout)
         for m in modules:
             ui = m.get_ui()
             cmds.tabLayout(tabs_layout, e=True, tabLabel=(ui, m.get_pretty_name()))
 
         cmds.tabLayout(tabs_layout, e=True, mt=[2, 4])
+        cmds.window(window, e=True, cc=pref_handler.save_pref)
 
         return window, master_layout, modules
 
