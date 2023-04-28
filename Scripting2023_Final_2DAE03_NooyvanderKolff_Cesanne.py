@@ -40,11 +40,13 @@ P4 For Maya: Automatic adding and checking out of Perforce Maya files from withi
 import json
 
 import os
+import threading
+import time
 from abc import ABC, abstractmethod
-from datetime import datetime
+from datetime import datetime, timedelta
 from enum import Enum
 from P4 import P4, P4Exception
-from maya import cmds, OpenMaya as Om
+from maya import cmds, OpenMaya as Om, utils
 
 
 BLUE_COLOUR = [0.2, 0.85, 0.98]
@@ -94,11 +96,35 @@ class Connector(P4MayaModule):
         self.__pref_handler = pref_handler
         super().__init__(master_layout)
         self.__log = []
+        self.__last_checked = datetime.now()
+        self.__job = ""
 
     def set_handler(self, handler):
         self._handler = handler
         self.__set_p4(False)
         self._handler.set_connect(self)
+
+    def __check_connection(self):
+        if self._handler.is_connected():
+            interval = 10
+
+            if datetime.now() - self.__last_checked > timedelta(seconds=interval):
+                self.__last_checked = datetime.now()
+
+                p4 = self._handler.p4
+
+                try:
+                    p4.connect()
+                    p4.run("login", "-s")
+                    p4.disconnect()
+                except P4Exception as inst:
+                    log_msg = "\n".join(inst.errors)
+                    msg_type = MessageType.WARNING
+
+                    self.__set_p4(False)
+                    self._send_to_log(log_msg, msg_type)
+
+                    cmds.scriptJob(kill=self.__job)
 
     def __connect(self):
         port = cmds.textField(self.__port, q=True, text=True)
@@ -142,7 +168,13 @@ class Connector(P4MayaModule):
 
         self.log_connection(log_msg)
 
-        self.__set_p4(msg_type is not MessageType.ERROR)
+        connected = msg_type is not MessageType.ERROR
+        if (not self._handler.is_connected()) and connected:
+            self.__job = cmds.scriptJob(e=["idle", lambda: self.__check_connection()])
+        elif self._handler.is_connected() and not connected:
+            cmds.scriptJob(kill=self.__job)
+
+        self.__set_p4(connected)
         self._send_to_log(log_msg, msg_type)
 
     def __disconnect(self):
