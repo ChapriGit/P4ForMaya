@@ -38,22 +38,26 @@ P4 For Maya: Automatic adding and checking out of Perforce Maya files from withi
 
 """
 import json
-
 import os
 import re
+
 from abc import ABC, abstractmethod
 from datetime import datetime, timedelta
 from enum import Enum
+
 from P4 import P4, P4Exception
 from maya import cmds, OpenMaya as Om, mel
-import maya.api.OpenMaya as api_om
+import maya.api.OpenMaya as Api_Om
 
 
-BLUE_COLOUR = [0.2, 0.85, 0.98]
-MARGIN_SIDE = 20
+BLUE_COLOUR = [0.2, 0.85, 0.98]         # Blue button colour.
+MARGIN_SIDE = 20                        # Margin to the side of the tab layouts.
 
 
 class MessageType(Enum):
+    """
+    An enumerator for Message Types. Can be simple logs, warnings and errors.
+    """
     LOG = 0
     WARNING = 1
     ERROR = 2
@@ -64,62 +68,104 @@ class MessageType(Enum):
 
 
 class P4MayaModule(ABC):
-    def __init__(self, master_layout):
+    """
+    Abstract class defining a module of the P4 For Maya script. Every module gets a tab in the settings window.
+    """
+    def __init__(self, master_layout: str):
+        """
+        The initialisation of the abstract module.
+        :param master_layout: The layout to which the module's UI needs to get attached to.
+        """
         self._handler = None
         self._ui = ""
         self._create_ui(master_layout)
 
     def set_handler(self, handler):
+        """
+        Sets the handler.
+        :param handler: A P4MayaControl object handling the modules of the script.
+        """
         self._handler = handler
 
-    def get_ui(self):
+    def get_ui(self) -> str:
+        """
+        Returns the UI
+        :return: A string containing the UI of the module.
+        """
         return self._ui
 
-    def _send_to_log(self, log_message, msg_type):
+    def _send_to_log(self, log_message: str, msg_type: MessageType):
+        """
+        Sends a message to be logged to the bar of the script.
+        :param log_message: The message to be logged.
+        :param msg_type: The type of message to be logged.
+        """
         self._handler.send_to_log(log_message, msg_type)
 
     @abstractmethod
-    def _create_ui(self, master_layout):
+    def _create_ui(self, master_layout: str):
+        """
+        Creates the UI for the module attached to the master layout provided.
+        :param master_layout: The layout to which the module should be attached
+        """
         pass
 
     @abstractmethod
-    def get_pretty_name(self):
+    def get_pretty_name(self) -> str:
+        """
+        Returns the pretty name of the module.
+        :return: The pretty name of the module.
+        """
         pass
 
 
-# TODO: Option to log in on Password wrong error?
 class Connector(P4MayaModule):
     """
-    Initialises and checks the Perforce connection.
+    Module initialising and checking the Perforce connection.
     """
-    __NAME = "CONNECTOR"
+    __NAME = "CONNECTOR"        # The saving name of the module.
 
     def __init__(self, pref_handler, master_layout):
-        self.__pref_handler = pref_handler
+        """
+        Initialises the Connector modules.
+        :param pref_handler: The Preference Handler to save any preferences.
+        :param master_layout: The layout to which the UI of the module should be attached.
+        """
+        self.__pref_handler = pref_handler          # The preference handler to save and load preferences.
+
+        self.__log = []                             # The log pertaining to the connection messages of P4.
+        self.__last_checked = datetime.now()        # Last time since checking the P4 connection.
+        self.__job = ""                             # The ID of the script job checking the P4 connection.
+
         super().__init__(master_layout)
-        self.__log = []
-        self.__last_checked = datetime.now()
-        self.__job = ""
 
     def set_handler(self, handler):
         self._handler = handler
+
+        # Also setting the P4 connection.
         self.__set_p4(False)
         self._handler.set_connect(self)
 
     def __check_connection(self):
+        """
+        Checks the P4 connection every 10 seconds. Will throw a warning and disconnect if the connection fails.
+        """
         if self._handler.is_connected():
             interval = 10
 
+            # Only check if the interval has passed.
             if datetime.now() - self.__last_checked > timedelta(seconds=interval):
                 self.__last_checked = datetime.now()
-
                 p4 = self._handler.p4
 
                 try:
+                    # Check the connection
                     p4.connect()
                     p4.run("login", "-s")
                     p4.disconnect()
+
                 except P4Exception as inst:
+                    # Throw the warning and kill the script job if not able to connect anymore.
                     log_msg = "\n".join(inst.errors)
                     msg_type = MessageType.WARNING
 
@@ -129,23 +175,32 @@ class Connector(P4MayaModule):
                     cmds.scriptJob(kill=self.__job)
 
     def __connect(self):
+        """
+        Tries to connect to P4 with the given port, user and workspace. If connection can be achieved, will be
+        propagated to the handler.
+        """
+        # Get the variables necessary.
         port = cmds.textField(self.__port, q=True, text=True)
         user = cmds.textField(self.__user, q=True, text=True)
         client = cmds.textField(self.__workspace, q=True, text=True)
 
+        # Throw an error if not everything has been filled in.
         if port == "" or user == "" or client == "":
             self.log_connection("Please fill in all the fields.")
             return
 
-        p4 = P4()  # Create the P4 instance
+        # Set up the P4 instance.
+        p4 = P4()
         p4.port = port
         p4.user = user
         p4.client = client
 
+        # Set up the try catch.
         incorrect_data = False
         incorrect_key = ""
 
         try:
+            # Connect and check whether the user and workspace exist.
             p4.connect()
             info = p4.run("info")
             for key in info[0]:
@@ -153,54 +208,77 @@ class Connector(P4MayaModule):
                     incorrect_data = True
                     incorrect_key = "user" if key == "userName" else "workspace"
                     break
+
+            # Check login.
             p4.run("login", "-s")
             p4.disconnect()
 
+            # Log result.
             if not incorrect_data:
                 log_msg = f"Connected to P4 server {port} as {user} on {client}."
                 msg_type = MessageType.LOG
             else:
                 log_msg = f"The {incorrect_key} given does not exist. Please try again."
                 msg_type = MessageType.ERROR
+
         except P4Exception as inst:
+            # Catch error and display it.
             log_msg = "\n".join(inst.errors)
             if log_msg == "":
                 log_msg = "The server given does not exist. Please try again."
             msg_type = MessageType.ERROR
 
+        # Send the message to own log.
         self.log_connection(log_msg)
 
+        # Set up or kill the script job if necessary
         connected = msg_type is not MessageType.ERROR
         if (not self._handler.is_connected()) and connected:
             self.__job = cmds.scriptJob(e=["idle", lambda: self.__check_connection()])
         elif self._handler.is_connected() and not connected:
             cmds.scriptJob(kill=self.__job)
 
+        # Propagate to the handler.
         self.__set_p4(connected)
         self._send_to_log(log_msg, msg_type)
 
     def __disconnect(self):
+        """
+        Disconnect the P4 connection.
+        """
         self.__set_p4(False)
         self.log_connection("Disconnected from P4.")
         self._send_to_log("Disconnected from P4.", MessageType.LOG)
 
     def log_connection(self, log_message):
+        """
+        Log a message on the connection log.
+        :param log_message: The message to be logged.
+        """
         self.__log.insert(0, ">> " + log_message)
         if len(self.__log) > 50:
+            # Only keep the last 50 logs.
             self.__log.remove(0)
         log = "\n\n".join(self.__log)
         cmds.scrollField(self.__log_display, e=True, text=log)
 
     def __set_p4(self, connected):
+        """
+        Sets the P4 connection to the specified connection.
+        :param connected: True if connection to P4 can be established with the given parameters.
+        """
+        # Get the parameters.
         port = cmds.textField(self.__port, q=True, text=True)
         user = cmds.textField(self.__user, q=True, text=True)
         client = cmds.textField(self.__workspace, q=True, text=True)
 
+        # If connection can be established, save the values.
         if connected:
             self.__pref_handler.set_pref(self.__NAME, "P4PORT", port)
             self.__pref_handler.set_pref(self.__NAME, "P4USER", user)
             self.__pref_handler.set_pref(self.__NAME, "P4CLIENT", client)
 
+        # Propagate the P4 connection and status
         self._handler.change_connection(port, user, client, connected)
 
     def _create_ui(self, master_layout):
@@ -692,9 +770,9 @@ class CustomSave(P4MayaModule):
             transforms = cmds.listRelatives(objects, parent=True, fullPath=True)
             for t in transforms:
                 matrix = cmds.xform(t, q=True, matrix=True)
-                om_matrix = api_om.MMatrix(matrix)
+                om_matrix = Api_Om.MMatrix(matrix)
 
-                if api_om.MMatrix() != om_matrix:
+                if Api_Om.MMatrix() != om_matrix:
                     success = False
                     warning.append("Not all transforms were frozen.")
                     break
