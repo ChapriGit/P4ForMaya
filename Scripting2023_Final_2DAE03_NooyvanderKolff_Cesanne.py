@@ -40,16 +40,16 @@ P4 For Maya: Automatic adding and checking out of Perforce Maya files from withi
 import json
 
 import os
-import threading
-import time
 from abc import ABC, abstractmethod
 from datetime import datetime, timedelta
 from enum import Enum
 from P4 import P4, P4Exception
-from maya import cmds, OpenMaya as Om, utils
+from maya import cmds, OpenMaya as Om
 
 
 BLUE_COLOUR = [0.2, 0.85, 0.98]
+MARGIN_SIDE = 20
+
 
 class MessageType(Enum):
     LOG = 0
@@ -214,7 +214,7 @@ class Connector(P4MayaModule):
         wsp_label = cmds.text(l="Workspace: ", h=height)
         self.__workspace = cmds.textField(h=height, text=client)
 
-        margin_side = 35
+        margin_side = MARGIN_SIDE + 15
         margin_middle = 10
         margin_top = 5
         padding_top = 20
@@ -306,9 +306,8 @@ class Connector(P4MayaModule):
 
 
 class ChangeLog(P4MayaModule):
-    def __init__(self, checks, master_layout):
+    def __init__(self, master_layout):
         super().__init__(master_layout)
-        self.__checks = checks
 
     def __get_changelist(self):
         pass
@@ -321,7 +320,7 @@ class ChangeLog(P4MayaModule):
 
     def _create_ui(self, master_layout):
         self._ui = cmds.formLayout(p=master_layout, w=200)
-        margin_side = 20
+        margin_side = MARGIN_SIDE
 
         changelist_label = cmds.text(l="Current Changelist: ", fn="boldLabelFont")
         changelist_nr = cmds.text(l="000000", fn="fixedWidthFont")
@@ -363,14 +362,14 @@ class ChangeLog(P4MayaModule):
                              cs=[(1, 5), (2, 5), (3, 5), (4, 5)])
         cmds.checkBox(l="")
         cmds.text(l="Add")
-        cmds.textField(text="C:\Developer\SourceArt\SM_Coffee.ma", ed=False)
+        cmds.textField(text=r"C:\Developer\SourceArt\SM_Coffee.ma", ed=False)
         now = datetime.now()
         dt_string = now.strftime("%d/%m/%Y %H:%M")
         cmds.text(l=dt_string)
 
         cmds.checkBox(l="")
         cmds.text(l="Edit")
-        cmds.textField(text="C:\Developer\SourceArt\SM_Coffee.ma", ed=False)
+        cmds.textField(text=r"C:\Developer\SourceArt\SM_Coffee.ma", ed=False)
         now = datetime.now()
         dt_string = now.strftime("%d/%m/%Y %H:%M")
         cmds.text(l=dt_string)
@@ -406,9 +405,33 @@ class Rollback(P4MayaModule):
 
 
 class CustomSave(P4MayaModule):
+    __NAME = "CUSTOM_SAVE"
+
+    class CheckType(Enum):
+        ERROR = 0
+        WARNING = 1
+        NONE = 2
+
     def __init__(self, pref_handler, master_layout):
+        self.__pref_handler = pref_handler
+        self.__state = CustomSave.CheckType.ERROR
+        self.__options = {}
+        self.__options.update({
+            "outside_p4": False,
+            "check_naming": True,
+            "naming_convention": ".*",
+            "check_directory": False,
+            "directory": "",
+            "non_manifold": False,
+            "ngons": False,
+            "concave": False,
+            "frozen_transform": False,
+            "centered": False
+        })
+
+        self.__load_pref()
         super().__init__(master_layout)
-        self.pref_handler = pref_handler
+
         self.__cb_id = 0
         self.__create_callbacks()
 
@@ -416,20 +439,123 @@ class CustomSave(P4MayaModule):
         self._handler = handler
         self._handler.manage_callback(self.__cb_id)
 
+    def __load_pref(self):
+        state = self.__pref_handler.get_pref(self.__NAME, "state") or 0
+        self.__state = CustomSave.CheckType(state)
+        options = self.__pref_handler.get_pref(self.__NAME, "options") or {}
+        self.__options.update(options)
+
+    def __set_state(self, option):
+        self.__state = CustomSave.CheckType(option)
+        self.__pref_handler.set_pref(self.__NAME, "state", self.__state.value)
+
+    def __set_variable(self, var, value):
+        self.__options.update({var: value})
+        self.__pref_handler.set_pref(self.__NAME, "options", self.__options)
+
     def check_open_file(self):
         pass
 
     def check_file(self, path):
         pass
 
-    def __save_file(self):
-        pass
-
     def _create_ui(self, master_layout):
-        self._ui = cmds.columnLayout(adj=True, p=master_layout)
+        self._ui = cmds.formLayout(p=master_layout)
 
-    def get_pretty_name(self):
-        return "Checks"
+        # Create the options with radio buttons and set up the commands.
+        error_check = cmds.columnLayout(adj=True, cat=("left", 25))
+        cmds.rowLayout(h=5)
+        cmds.setParent("..")
+        options = ["Error", "Warning", "No Checks"]
+        error_options = self.create_radio_group(error_check, options, default_opt=self.__state.value)
+        for i in range(3):
+            cmds.iconTextRadioButton(error_options[i], e=True, onc=lambda _, j=i: self.__set_state(j))
+        cmds.setParent(error_check)
+        cmds.rowLayout(h=5)
+        cmds.setParent("..")
+        cmds.columnLayout(adj=True, cat=("left", 5))
+        cmds.checkBox(l="Also check if saved outside of P4 structure", v=self.__options.get("outside_p4"),
+                      cc=lambda val: self.__set_variable("outside_p4", val))
+
+        naming = cmds.frameLayout(l="Naming & Folder Structure", p=self._ui)
+        self.__create_naming_frame(naming)
+
+        geometry = cmds.frameLayout(l="Geometry", p=self._ui)
+        self.__create_geometry_frame(geometry)
+
+        margin_side = MARGIN_SIDE
+        cmds.formLayout(self._ui, e=True, af={(error_check, "top", 15), (naming, "left", margin_side),
+                                              (naming, "right", margin_side), (geometry, "left", margin_side),
+                                              (geometry, "right", margin_side), (error_check, "left", margin_side),
+                                              (error_check, "right", margin_side)},
+                        ac={(geometry, "top", 15, naming), (naming, "top", 20, error_check)})
+
+    def __create_naming_frame(self, frame):
+        cmds.columnLayout(adj=True, p=frame)
+        cmds.rowLayout(h=5)
+        cmds.setParent("..")
+
+        cmds.rowLayout(nc=3, adj=3, cat={(1, "left", 5), (2, "left", 5), (3, "left", 5)})
+        cmds.checkBox(v=self.__options.get("check_naming"), l="",
+                      cc=lambda val: self.__set_variable("check_naming", val))
+        cmds.text(l="Naming Convention")
+        cmds.textField(text=self.__options.get("naming_convention"), pht="Regex",
+                       tcc=lambda val: self.__set_variable("naming_convention", val))
+        cmds.setParent("..")
+
+        cmds.rowLayout(nc=4, adj=3, cat={(1, "left", 5), (2, "left", 5), (3, "left", 5), (4, "left", 5)})
+        cmds.checkBox(v=self.__options.get("check_directory"), l="",
+                      cc=lambda val: self.__set_variable("check_directory", val))
+        cmds.text(l="Directory")
+        cmds.textField(text=self.__options.get("directory"),
+                       pht="Maya Files Directory", tcc=lambda val: self.__set_variable("directory", val))
+        cmds.button(l="Browse")
+        cmds.setParent("..")
+
+    def __create_geometry_frame(self, frame):
+        column = cmds.columnLayout(adj=True, cat=("left", 15), p=frame)
+        cmds.rowLayout(h=5)
+        cmds.setParent("..")
+        cmds.text(l="Shape:", al="left", fn="boldLabelFont", h=20)
+        cmds.columnLayout(adj=True, p=column, cat=("left", 15))
+
+        cmds.checkBox(l="Non-manifold", cc=lambda val: self.__set_variable("non_manifold", val),
+                      v=self.__options.get("non_manifold"))
+        cmds.checkBox(l="Ngons", cc=lambda val: self.__set_variable("ngons", val), v=self.__options.get("ngons"))
+        cmds.checkBox(l="Concave Faces", cc=lambda val: self.__set_variable("concave", val),
+                      v=self.__options.get("concave"))
+        cmds.setParent("..")
+
+        cmds.rowLayout(h=8, p=column)
+        cmds.setParent("..")
+        cmds.text(l="Transform:", al="left", fn="boldLabelFont", h=20)
+
+        cmds.columnLayout(adj=True, p=column, cat=("left", 15))
+        cmds.checkBox(l="Frozen Transform", cc=lambda val: self.__set_variable("frozen_transform", val),
+                      v=self.__options.get("frozen_transform"))
+        cmds.checkBox(l="Positioned around Center", cc=lambda val: self.__set_variable("centered", val),
+                      v=self.__options.get("centered"))
+
+    @staticmethod
+    def create_radio_group(layout: str, options: [str], default_opt: int = 1, width: int = 80, offset: int = 0) \
+            -> [str]:
+        """
+        Creates a group of radio-like buttons with the given options.
+        :param layout: The parent layout.
+        :param options: The labels for the possible buttons.
+        :param default_opt: The default selected index from 0 to len - 1.
+        :param width: The buttons' width.
+        :param offset: The offset of the left edge
+        :return: An array with the buttons created.
+        """
+        cmds.rowLayout(nc=3, p=layout, cat=(1, "left", offset))
+        radio_collection = cmds.iconTextRadioCollection()
+        buttons = []
+        for opt in options:
+            button = cmds.iconTextRadioButton(st='textOnly', l=opt, w=width, bgc=[0.4, 0.4, 0.4], h=20)
+            buttons.append(button)
+        cmds.iconTextRadioCollection(radio_collection, e=True, select=buttons[default_opt])
+        return buttons
 
     @staticmethod
     def p4_exists(p4, path):
@@ -483,6 +609,9 @@ class CustomSave(P4MayaModule):
     def __create_callbacks(self):
         self.__cb_id = Om.MSceneMessage.addCheckCallback(Om.MSceneMessage.kBeforeSaveCheck,
                                                          lambda ret_code, client_data: self.__intercept_save(ret_code))
+
+    def get_pretty_name(self):
+        return "Checks"
 
 
 ############################################################################################################
@@ -719,7 +848,7 @@ class P4MayaFactory:
         pref_handler = PreferenceHandler()
         connector = Connector(pref_handler, tabs_layout)
         checks = CustomSave(pref_handler, tabs_layout)
-        changelog = ChangeLog(checks, tabs_layout)
+        changelog = ChangeLog(tabs_layout)
         rollback = Rollback(tabs_layout)
 
         return pref_handler, (connector, changelog, rollback, checks)
