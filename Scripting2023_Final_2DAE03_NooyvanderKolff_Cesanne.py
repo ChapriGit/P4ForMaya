@@ -40,11 +40,13 @@ P4 For Maya: Automatic adding and checking out of Perforce Maya files from withi
 import json
 
 import os
+import re
 from abc import ABC, abstractmethod
 from datetime import datetime, timedelta
 from enum import Enum
 from P4 import P4, P4Exception
-from maya import cmds, OpenMaya as Om
+from maya import cmds, OpenMaya as Om, mel
+import maya.api.OpenMaya as api_om
 
 
 BLUE_COLOUR = [0.2, 0.85, 0.98]
@@ -449,15 +451,13 @@ class CustomSave(P4MayaModule):
         self.__state = CustomSave.CheckType(option)
         self.__pref_handler.set_pref(self.__NAME, "state", self.__state.value)
 
+        cmds.frameLayout(self.__naming, e=True, en=not (option == 2))
+        cmds.frameLayout(self.__geometry, e=True, en=not (option == 2))
+        cmds.checkBox(self.__p4_checkbox, e=True, en=not (option == 2))
+
     def __set_variable(self, var, value):
         self.__options.update({var: value})
         self.__pref_handler.set_pref(self.__NAME, "options", self.__options)
-
-    def check_open_file(self):
-        pass
-
-    def check_file(self, path):
-        pass
 
     def _create_ui(self, master_layout):
         self._ui = cmds.formLayout(p=master_layout)
@@ -474,21 +474,24 @@ class CustomSave(P4MayaModule):
         cmds.rowLayout(h=5)
         cmds.setParent("..")
         cmds.columnLayout(adj=True, cat=("left", 5))
-        cmds.checkBox(l="Also check if saved outside of P4 structure", v=self.__options.get("outside_p4"),
-                      cc=lambda val: self.__set_variable("outside_p4", val))
+        self.__p4_checkbox = cmds.checkBox(l="Also check if saved outside of P4 structure",
+                                           v=self.__options.get("outside_p4"),
+                                           cc=lambda val: self.__set_variable("outside_p4", val))
 
-        naming = cmds.frameLayout(l="Naming & Folder Structure", p=self._ui)
-        self.__create_naming_frame(naming)
+        self.__naming = cmds.frameLayout(l="Naming & Folder Structure", p=self._ui)
+        self.__create_naming_frame(self.__naming)
 
-        geometry = cmds.frameLayout(l="Geometry", p=self._ui)
-        self.__create_geometry_frame(geometry)
+        self.__geometry = cmds.frameLayout(l="Geometry", p=self._ui)
+        self.__create_geometry_frame(self.__geometry)
 
         margin_side = MARGIN_SIDE
-        cmds.formLayout(self._ui, e=True, af={(error_check, "top", 15), (naming, "left", margin_side),
-                                              (naming, "right", margin_side), (geometry, "left", margin_side),
-                                              (geometry, "right", margin_side), (error_check, "left", margin_side),
+        cmds.formLayout(self._ui, e=True, af={(error_check, "top", 15), (self.__naming, "left", margin_side),
+                                              (self.__naming, "right", margin_side),
+                                              (self.__geometry, "left", margin_side),
+                                              (self.__geometry, "right", margin_side),
+                                              (error_check, "left", margin_side),
                                               (error_check, "right", margin_side)},
-                        ac={(geometry, "top", 15, naming), (naming, "top", 20, error_check)})
+                        ac={(self.__geometry, "top", 15, self.__naming), (self.__naming, "top", 20, error_check)})
 
     def __create_naming_frame(self, frame):
         cmds.columnLayout(adj=True, p=frame)
@@ -584,6 +587,26 @@ class CustomSave(P4MayaModule):
                 self._handler.p4_connect()
                 p4 = self._handler.p4
 
+                check = True
+                if not self.__options.get("outside_p4"):
+                    path = os.path.dirname(cmds.file(q=True, sn=True))
+                    check = self.p4_in_workspace(p4, path)
+
+                if check and self.__state is not CustomSave.CheckType.NONE:
+                    state = MessageType.ERROR if self.__state == CustomSave.CheckType.ERROR else MessageType.WARNING
+                    checks_passed, warnings = self.__check_open_file()
+
+                    if not checks_passed:
+                        for w in warnings:
+                            self._send_to_log(w, state)
+
+                        if self.__state is CustomSave.CheckType.ERROR:
+                            string_error = f"{len(warnings)} Checks failed. See the log for more information. " \
+                                           f"Saving Canceled."
+                            cmds.displayString(string_key, replace=True, value=string_error)
+                            Om.MScriptUtil.setBool(ret_code, False)
+                            return
+
                 file = cmds.file(q=True, sn=True)
                 dir_name = os.path.dirname(file)
                 if self.p4_in_workspace(p4, dir_name):
@@ -605,6 +628,90 @@ class CustomSave(P4MayaModule):
             cmds.displayString(string_key, replace=True, value=message)
 
         Om.MScriptUtil.setBool(ret_code, continue_save)
+
+    def __check_open_file(self) -> (bool, [str]):
+        path = cmds.file(q=True, sn=True)
+        success, warnings = self.__check_path(path)
+        if cmds.ls(type="mesh"):
+            success_geo, warnings_geo = self.__check_geometry()
+            success = success_geo and success
+            warnings = warnings_geo + warnings
+
+        return success, warnings
+
+    def __check_path(self, path) -> (bool, [str]):
+        success = True
+        warning = []
+
+        if self.__options.get("check_naming"):
+            filename = os.path.basename(path)
+            if not re.match(self.__options.get("naming_convention"), filename):
+                warning.append(f"The naming convention with pattern {self.__options.get('naming_convention')} "
+                               f"is not being respected.")
+                success = False
+
+        if self.__options.get("check_directory"):
+            path = os.path.realpath(path)
+            if self.__options.get("directory"):
+                directory = os.path.realpath(self.__options.get("directory"))
+                if not os.path.commonprefix([path, directory]) == directory:
+                    warning.append(f"The file should be saved in {directory}, but was saved in {os.path.dirname(path)}.")
+                    success = False
+
+        return success, warning
+
+    def __check_geometry(self) -> (bool, [str]):
+        success = True
+        warning = []
+
+        if self.__options.get("non_manifold"):
+            objects = cmds.ls(type="mesh", dag=True)
+            cmds.select(objects)
+            non_manifold = mel.eval(r'polyCleanupArgList 4 { "1","2","1","0","0","0","0","0","0","1e-05","0","1e-05",'
+                                    r'"0","1e-05","0","1","0","0" }')
+            if non_manifold:
+                success = False
+                warning.append("Non-manifold geometry was found. Please clean up the geometry before saving.")
+
+        if self.__options.get("ngons"):
+            ngons = mel.eval(r'polyCleanupArgList 4 { "1","2","1","0","1","0","0","0","0","1e-05","0","1e-05","0",'
+                             r'"1e-05","0","0","0","0" }')
+            if ngons:
+                success = False
+                warning.append("Ngons were found. Please clean up the geometry before saving.")
+
+        if self.__options.get("concave"):
+            concave = mel.eval(r'polyCleanupArgList 4 { "1","2","1","0","0","1","0","0","0","1e-05","0","1e-05","0",'
+                               r'"1e-05","0","0","0","0" }')
+            if concave:
+                success = False
+                warning.append("Concave faces were found. Please clean up the geometry before saving.")
+
+        if self.__options.get("frozen_transform"):
+            objects = cmds.ls(type="mesh", dag=True)
+            transforms = cmds.listRelatives(objects, parent=True, fullPath=True)
+            for t in transforms:
+                matrix = cmds.xform(t, q=True, matrix=True)
+                om_matrix = api_om.MMatrix(matrix)
+
+                if api_om.MMatrix() != om_matrix:
+                    success = False
+                    warning.append("Not all transforms were frozen.")
+                    break
+
+        if self.__options.get("centered"):
+            objects = cmds.ls(type="mesh", dag=True)
+            for obj in objects:
+                bbox = cmds.exactWorldBoundingBox(obj)
+                x_zero_centered = bbox[0] < 1 and bbox[3] > -1
+                y_zero_centered = bbox[1] < 1 and bbox[4] > -1
+                z_zero_centered = bbox[2] < 1 and bbox[5] > -1
+
+                if not (x_zero_centered and y_zero_centered and z_zero_centered):
+                    success = False
+                    warning.append("The meshes are not positioned around (0, 0, 0).")
+
+        return success, warning
 
     def __create_callbacks(self):
         self.__cb_id = Om.MSceneMessage.addCheckCallback(Om.MSceneMessage.kBeforeSaveCheck,
