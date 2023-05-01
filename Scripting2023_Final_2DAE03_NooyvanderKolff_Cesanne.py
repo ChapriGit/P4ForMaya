@@ -125,7 +125,7 @@ class Connector(P4MayaModule):
     """
     __NAME = "CONNECTOR"        # The saving name of the module.
 
-    def __init__(self, pref_handler, master_layout):
+    def __init__(self, pref_handler, master_layout: str):
         """
         Initialises the Connector modules.
         :param pref_handler: The Preference Handler to save any preferences.
@@ -250,7 +250,7 @@ class Connector(P4MayaModule):
         self.log_connection("Disconnected from P4.")
         self._send_to_log("Disconnected from P4.", MessageType.LOG)
 
-    def log_connection(self, log_message):
+    def log_connection(self, log_message: str):
         """
         Log a message on the connection log.
         :param log_message: The message to be logged.
@@ -262,7 +262,7 @@ class Connector(P4MayaModule):
         log = "\n\n".join(self.__log)
         cmds.scrollField(self.__log_display, e=True, text=log)
 
-    def __set_p4(self, connected):
+    def __set_p4(self, connected: bool):
         """
         Sets the P4 connection to the specified connection.
         :param connected: True if connection to P4 can be established with the given parameters.
@@ -278,13 +278,17 @@ class Connector(P4MayaModule):
             self.__pref_handler.set_pref(self.__NAME, "P4USER", user)
             self.__pref_handler.set_pref(self.__NAME, "P4CLIENT", client)
 
-        # Propagate the P4 connection and status
+        # Propagate the P4 connection and status.
         self._handler.change_connection(port, user, client, connected)
 
     def _create_ui(self, master_layout):
+        # Setup of the overarching layout.
         self._ui = cmds.formLayout(p=master_layout)
+
+        # Parameter section of the layout.
         form = cmds.formLayout(w=300)
 
+        # Setup labels and text fields of the port, user and workspace.
         port, user, client, avail_clients = self.__get_default_values()
         height = 20
         server_label = cmds.text(l="Server: ", h=height)
@@ -310,6 +314,7 @@ class Connector(P4MayaModule):
                             (user_label, "top", margin_top, server_label),
                             (wsp_label, "top", margin_top, user_label)})
 
+        # Create dropdown menu for workspaces.
         available_wsp_label = cmds.text(l="Available workspaces", align="left", h=height)
         wsp_menu = cmds.optionMenu(h=height, w=230,
                                    cc=lambda new_client: cmds.textField(self.__workspace, e=True, text=new_client))
@@ -319,6 +324,7 @@ class Connector(P4MayaModule):
 
         cmds.optionMenu(wsp_menu, e=True, bsp=lambda _: self.__refresh_workspaces(wsp_menu))
 
+        # Setup of connect and disconnect button.
         buttons = cmds.rowLayout(nc=2)
         cmds.button(l="Connect to P4", bgc=BLUE_COLOUR, w=100, c=lambda _: self.__connect())
         cmds.button(l="Disconnect", c=lambda _: self.__disconnect())
@@ -329,6 +335,7 @@ class Connector(P4MayaModule):
                         ac={(available_wsp_label, "top", margin_top, self.__workspace),
                             (wsp_menu, "top", margin_top, available_wsp_label), (buttons, "top", margin_top, wsp_menu)})
 
+        # Setup of the log to show connection messages in.
         label = cmds.text(l="Connection Log:", p=self._ui)
         self.__log_display = cmds.scrollField(h=200, wordWrap=True, ed=False, p=self._ui)
 
@@ -338,20 +345,31 @@ class Connector(P4MayaModule):
                                               (label, "left", 20)},
                         ac={(self.__log_display, "top", 5, label), (label, "top", 5, form)})
 
-    def __get_default_values(self):
+    def __get_default_values(self) -> (str, str, str, [str]):
+        """
+        Gets the default values for the P4 connection. With saved preferences getting the highest priority and then
+        environment variables.
+        :return: Returns the port, user, workspace and a list of available workspaces in that order.
+        """
         p4 = P4()
 
+        # Get the default values for port and user.
         port = self.__pref_handler.get_pref(self.__NAME, "P4PORT") or (p4.env("P4PORT") or '')
         user = self.__pref_handler.get_pref(self.__NAME, "P4USER") or str(p4.env("P4USER") or '')
         p4.port = port
         p4.user = user
 
+        # Get the default value for the workspace.
         client = self.__pref_handler.get_pref(self.__NAME, "P4CLIENT") or ''
+
+        # Get the available workspaces given the port and user.
         try:
             p4.connect()
             avail_clients = p4.run("clients", "-u", user)
             p4.disconnect()
             clients = []
+
+            # Only allow workspaces that are linked to the computer being used.
             for c in avail_clients:
                 if c.get("Host") == p4.host:
                     clients.append(c.get("client"))
@@ -360,22 +378,31 @@ class Connector(P4MayaModule):
 
         return port, user, client, clients
 
-    def __refresh_workspaces(self, dropdown):
+    def __refresh_workspaces(self, dropdown: str):
+        """
+        Refreshes the workspace dropdown with the available dropdowns.
+        :param dropdown: The dropdown to create the workspace list in.
+        """
+        # Get the necessary variables.
         p4 = P4()
         p4.port = cmds.textField(self.__port, q=True, text=True)
         p4.user = cmds.textField(self.__user, q=True, text=True)
 
+        # Get the available workspaces given the port and user.
         try:
             p4.connect()
             avail_clients = p4.run("clients", "-u", p4.user)
             p4.disconnect()
             clients = []
+
+            # Only allow workspaces that are linked to the computer being used.
             for c in avail_clients:
                 if c.get("Host") == p4.host:
                     clients.append(c.get("client"))
         except P4Exception:
             clients = ["Please login to P4."]
 
+        # Add the options to the menu.
         cmds.optionMenu(dropdown, e=True, dai=True)
         cmds.menuItem(label='', p=dropdown)
         for c in clients:
@@ -386,6 +413,10 @@ class Connector(P4MayaModule):
 
 
 class ChangeLog(P4MayaModule):
+    """
+    Module to submit the changelog to P4. It displays the changelog and allows for a submit-message and selection of
+    what to submit.
+    """
     def __init__(self, master_layout):
         super().__init__(master_layout)
 
@@ -399,9 +430,11 @@ class ChangeLog(P4MayaModule):
         pass
 
     def _create_ui(self, master_layout):
+        # Create the overarching layout.
         self._ui = cmds.formLayout(p=master_layout, w=200)
         margin_side = MARGIN_SIDE
 
+        # Show what Changelist is being displayed.
         changelist_label = cmds.text(l="Current Changelist: ", fn="boldLabelFont")
         changelist_nr = cmds.text(l="000000", fn="fixedWidthFont")
         refresh_button = cmds.button(l="Refresh", w=70)
@@ -410,10 +443,12 @@ class ChangeLog(P4MayaModule):
                                               (changelist_nr, "top", 19)},
                         ac=(changelist_nr, "left", 5, changelist_label))
 
+        # Create the changelist itself.
         table = self.__create_table()
         cmds.formLayout(self._ui, e=True, af={(table, "left", margin_side), (table, "right", margin_side)},
                         ac={(refresh_button, "top", 10, table), (table, "top", 10, changelist_label)})
 
+        # Allow for adding a description.
         cmds.setParent(self._ui)
         desc_label = cmds.text(l="Description:")
         self.__commit_msg = cmds.scrollField(h=100)
@@ -426,9 +461,17 @@ class ChangeLog(P4MayaModule):
                         ac={(desc_label, "top", 5, refresh_button), (self.__commit_msg, "top", 5, desc_label),
                             (submit_button, "top", 10, self.__commit_msg)})
 
-    def __create_table(self):
+    # TODO: Actually fill the table.
+    def __create_table(self) -> str:
+        """
+        Creates the changelog table.
+        :return: The UI element containing the created table.
+        """
+        # Set up the overarching layout.
         table = cmds.scrollLayout(vsb=True, cr=True, h=200, bgc=[0.22, 0.22, 0.22])
         cmds.columnLayout(adj=True, cat=["right", 5])
+
+        # Set up the header row.
         cmds.rowColumnLayout(nc=4, adj=3, cw=[(1, 20), (2, 40), (4, 90)], bgc=[0.17, 0.17, 0.17],
                              cat=[(1, "left", 5)], cs=[(1, 5), (2, 5), (3, 5), (4, 5)], rs=(1, 5))
         cmds.checkBox(l="")
@@ -438,6 +481,7 @@ class ChangeLog(P4MayaModule):
 
         cmds.setParent("..")
 
+        # Set up the actual table.
         cmds.rowColumnLayout(nc=4, adj=3, cw=[(1, 20), (2, 40), (4, 90)], cat=[(1, "left", 5)],
                              cs=[(1, 5), (2, 5), (3, 5), (4, 5)])
         cmds.checkBox(l="")
@@ -456,15 +500,14 @@ class ChangeLog(P4MayaModule):
 
         return table
 
-    @staticmethod
-    def edit_cell():
-        return 1
-
     def get_pretty_name(self):
         return "Changelist"
 
 
 class Rollback(P4MayaModule):
+    """
+    Module to allow reverting the currently opened file if it is connected to the P4 file system.
+    """
     def __init__(self, master_layout):
         super().__init__(master_layout)
 
@@ -485,14 +528,27 @@ class Rollback(P4MayaModule):
 
 
 class CustomSave(P4MayaModule):
-    __NAME = "CUSTOM_SAVE"
+    """
+    A module pertaining to saving and P4. It allows for automatic adding and checking out of files and to first check
+    said file on specified points.
+    """
+    __NAME = "CUSTOM_SAVE"          # The module name for saving purposes.
 
     class CheckType(Enum):
+        """
+        An Enum indicating how to check for mistakes.
+        """
         ERROR = 0
         WARNING = 1
         NONE = 2
 
-    def __init__(self, pref_handler, master_layout):
+    def __init__(self, pref_handler, master_layout: str):
+        """
+        Initialises a CustomSave module with the given preference handler in the specified layout.
+        :param pref_handler: The handler that goes over storing and loading of presets.
+        :param master_layout: The layout in which the module should dock its own.
+        """
+        # Set up the default values.
         self.__pref_handler = pref_handler
         self.__state = CustomSave.CheckType.ERROR
         self.__options = {}
@@ -510,8 +566,11 @@ class CustomSave(P4MayaModule):
         })
 
         self.__load_pref()
+
+        # Create the UI.
         super().__init__(master_layout)
 
+        # Set up the saving callback.
         self.__cb_id = 0
         self.__create_callbacks()
 
@@ -520,27 +579,41 @@ class CustomSave(P4MayaModule):
         self._handler.manage_callback(self.__cb_id)
 
     def __load_pref(self):
+        """
+        Load the preferences into the settings of the module.
+        """
         state = self.__pref_handler.get_pref(self.__NAME, "state") or 0
         self.__state = CustomSave.CheckType(state)
         options = self.__pref_handler.get_pref(self.__NAME, "options") or {}
         self.__options.update(options)
 
-    def __set_state(self, option):
+    def __set_state(self, option: int):
+        """
+        Set the state to the given option.
+        :param option: An integer specifying the new CheckType.
+        """
         self.__state = CustomSave.CheckType(option)
         self.__pref_handler.set_pref(self.__NAME, "state", self.__state.value)
 
+        # Enable or disable the layout if no checks are necessary.
         cmds.frameLayout(self.__naming, e=True, en=not (option == 2))
         cmds.frameLayout(self.__geometry, e=True, en=not (option == 2))
         cmds.checkBox(self.__p4_checkbox, e=True, en=not (option == 2))
 
-    def __set_variable(self, var, value):
+    def __set_variable(self, var: str, value):
+        """
+        Sets the specified variable to the given value.
+        :param var: The variable name of the variable to change.
+        :param value: The value to be given.
+        """
         self.__options.update({var: value})
         self.__pref_handler.set_pref(self.__NAME, "options", self.__options)
 
     def _create_ui(self, master_layout):
+        # Set up of the overarching layout.
         self._ui = cmds.formLayout(p=master_layout)
 
-        # Create the options with radio buttons and set up the commands.
+        # Create the radio buttons for specifying the state.
         error_check = cmds.columnLayout(adj=True, cat=("left", 25))
         cmds.rowLayout(h=5)
         cmds.setParent("..")
@@ -551,17 +624,22 @@ class CustomSave(P4MayaModule):
         cmds.setParent(error_check)
         cmds.rowLayout(h=5)
         cmds.setParent("..")
+
+        # Whether to check if saving outside a P4 structure while connected.
         cmds.columnLayout(adj=True, cat=("left", 5))
         self.__p4_checkbox = cmds.checkBox(l="Also check if saved outside of P4 structure",
                                            v=self.__options.get("outside_p4"),
                                            cc=lambda val: self.__set_variable("outside_p4", val))
 
+        # Set up of the path options.
         self.__naming = cmds.frameLayout(l="Naming & Folder Structure", p=self._ui)
         self.__create_naming_frame(self.__naming)
 
+        # Set up of the geometry options.
         self.__geometry = cmds.frameLayout(l="Geometry", p=self._ui)
         self.__create_geometry_frame(self.__geometry)
 
+        # Add to form layout.
         margin_side = MARGIN_SIDE
         cmds.formLayout(self._ui, e=True, af={(error_check, "top", 15), (self.__naming, "left", margin_side),
                                               (self.__naming, "right", margin_side),
@@ -571,11 +649,17 @@ class CustomSave(P4MayaModule):
                                               (error_check, "right", margin_side)},
                         ac={(self.__geometry, "top", 15, self.__naming), (self.__naming, "top", 20, error_check)})
 
-    def __create_naming_frame(self, frame):
+    def __create_naming_frame(self, frame: str):
+        """
+        Creates the frame containing the options pertaining to paths and file names.
+        :param frame: The parent frame layout in which to dock the naming layout.
+        """
+        # Set up main layout.
         cmds.columnLayout(adj=True, p=frame)
         cmds.rowLayout(h=5)
         cmds.setParent("..")
 
+        # Set up the naming option.
         cmds.rowLayout(nc=3, adj=3, cat={(1, "left", 5), (2, "left", 5), (3, "left", 5)})
         cmds.checkBox(v=self.__options.get("check_naming"), l="",
                       cc=lambda val: self.__set_variable("check_naming", val))
@@ -584,6 +668,7 @@ class CustomSave(P4MayaModule):
                        tcc=lambda val: self.__set_variable("naming_convention", val))
         cmds.setParent("..")
 
+        # Set up the directory option.
         cmds.rowLayout(nc=4, adj=3, cat={(1, "left", 5), (2, "left", 5), (3, "left", 5), (4, "left", 5)})
         cmds.checkBox(v=self.__options.get("check_directory"), l="",
                       cc=lambda val: self.__set_variable("check_directory", val))
@@ -594,9 +679,16 @@ class CustomSave(P4MayaModule):
         cmds.setParent("..")
 
     def __create_geometry_frame(self, frame):
+        """
+        Creates the frame containing the options pertaining to the geometry in the file.
+        :param frame: The parent frame layout in which to dock the geometry layout.
+        """
+        # Set up of the overarching layout/
         column = cmds.columnLayout(adj=True, cat=("left", 15), p=frame)
         cmds.rowLayout(h=5)
         cmds.setParent("..")
+
+        # Set up of the options pertaining to shape.
         cmds.text(l="Shape:", al="left", fn="boldLabelFont", h=20)
         cmds.columnLayout(adj=True, p=column, cat=("left", 15))
 
@@ -609,6 +701,8 @@ class CustomSave(P4MayaModule):
 
         cmds.rowLayout(h=8, p=column)
         cmds.setParent("..")
+
+        # Set up of the options pertaining to the transform.
         cmds.text(l="Transform:", al="left", fn="boldLabelFont", h=20)
 
         cmds.columnLayout(adj=True, p=column, cat=("left", 15))
@@ -639,7 +733,13 @@ class CustomSave(P4MayaModule):
         return buttons
 
     @staticmethod
-    def p4_exists(p4, path):
+    def p4_exists(p4: P4, path: str) -> bool:
+        """
+        Checks whether the file already exists in the P4 file structure.
+        :param p4: The connected P4 connection.
+        :param path: The path of the file to check.
+        :return: True if the file already exists on P4, otherwise False.
+        """
         try:
             p4.run("files", path)
             return True
@@ -648,6 +748,12 @@ class CustomSave(P4MayaModule):
 
     @staticmethod
     def p4_in_workspace(p4, path):
+        """
+        Checks whether a directory path is part of the P4 file structure.
+        :param p4: The connected P4 connection.
+        :param path: The path of the directory to check.
+        :return: True if the directory is part of the P4 file structure, otherwise False.
+        """
         try:
             p4.run("where", path)
             return True
@@ -655,36 +761,51 @@ class CustomSave(P4MayaModule):
             return False
 
     def __intercept_save(self, ret_code):
+        """
+        Function to run when intercepting saving. Will check the file based on the specified parameters and add or check
+        out a file as necessary. Can cancel saving.
+        :param ret_code: The return code variable necessary for canceling saving.
+        """
         continue_save = True
+
+        # Only check if connected.
         if self._handler.is_connected():
+            # Set up for custom cancellation error.
             string_key = "s_TfileIOStrings.rFileOpCancelledByUser"
             string_default = "File operation cancelled by user supplied callback."
             string_error = "Saving Canceled for Unknown Reasons."
 
             try:
+                # Set up the P4 connection.
                 self._handler.p4_connect()
                 p4 = self._handler.p4
 
                 check = True
+                # Check whether the file is saved inside a P4 workspace if necessary.
                 if not self.__options.get("outside_p4"):
                     path = os.path.dirname(cmds.file(q=True, sn=True))
                     check = self.p4_in_workspace(p4, path)
 
+                # Executes the checks.
                 if check and self.__state is not CustomSave.CheckType.NONE:
                     state = MessageType.ERROR if self.__state == CustomSave.CheckType.ERROR else MessageType.WARNING
                     checks_passed, warnings = self.__check_open_file()
 
+                    # If the checks failed, propagate to the user as specified.
                     if not checks_passed:
                         for w in warnings:
                             self._send_to_log(w, state)
 
+                        # Cancel saving if set to Error out.
                         if self.__state is CustomSave.CheckType.ERROR:
+                            self._handler.p4_release()
                             string_error = f"{len(warnings)} Checks failed. See the log for more information. " \
                                            f"Saving Canceled."
                             cmds.displayString(string_key, replace=True, value=string_error)
                             Om.MScriptUtil.setBool(ret_code, False)
                             return
 
+                # Add or check out the file from P4.
                 file = cmds.file(q=True, sn=True)
                 dir_name = os.path.dirname(file)
                 if self.p4_in_workspace(p4, dir_name):
@@ -695,6 +816,7 @@ class CustomSave(P4MayaModule):
                 self._handler.p4_release()
 
             except P4Exception as inst:
+                # Handle P4Exception by canceling saving and informing the user.
                 message = inst.errors
                 if message == "":
                     message = inst.warnings
@@ -702,14 +824,23 @@ class CustomSave(P4MayaModule):
                 string_error = f"Saving canceled. \n {message}"
                 continue_save = False
 
+            # Set up the error message displayed.
             message = string_error if not continue_save else string_default
             cmds.displayString(string_key, replace=True, value=message)
 
         Om.MScriptUtil.setBool(ret_code, continue_save)
 
     def __check_open_file(self) -> (bool, [str]):
+        """
+        Checks the open Maya file on errors.
+        :return: A tuple containing a boolean indicating whether the checks were passed successfully and an array
+            containing possible error messages.
+        """
+        # Check the file path name.
         path = cmds.file(q=True, sn=True)
         success, warnings = self.__check_path(path)
+
+        # If the file is not empty, also check the geometry.
         if cmds.ls(type="mesh"):
             success_geo, warnings_geo = self.__check_geometry()
             success = success_geo and success
@@ -718,9 +849,16 @@ class CustomSave(P4MayaModule):
         return success, warnings
 
     def __check_path(self, path) -> (bool, [str]):
+        """
+        Checks the given path on breaking conventions.
+        :param path: The path to be checked.
+        :return: A tuple containing a boolean indicating whether the checks were passed successfully and an array
+            containing possible error messages.
+        """
         success = True
         warning = []
 
+        # Check the naming convention of the file.
         if self.__options.get("check_naming"):
             filename = os.path.basename(path)
             if not re.match(self.__options.get("naming_convention"), filename):
@@ -728,20 +866,28 @@ class CustomSave(P4MayaModule):
                                f"is not being respected.")
                 success = False
 
+        # Check the directory convention.
         if self.__options.get("check_directory"):
             path = os.path.realpath(path)
             if self.__options.get("directory"):
                 directory = os.path.realpath(self.__options.get("directory"))
                 if not os.path.commonprefix([path, directory]) == directory:
-                    warning.append(f"The file should be saved in {directory}, but was saved in {os.path.dirname(path)}.")
+                    warning.append(f"The file should be saved in {directory}, but was saved in "
+                                   f"{os.path.dirname(path)}.")
                     success = False
 
         return success, warning
 
     def __check_geometry(self) -> (bool, [str]):
+        """
+        Checks the current file on mistakes.
+        :return: A tuple containing a boolean indicating whether the checks were passed successfully and an array
+            containing possible error messages.
+        """
         success = True
         warning = []
 
+        # Check for non-manifold geometry.
         if self.__options.get("non_manifold"):
             objects = cmds.ls(type="mesh", dag=True)
             cmds.select(objects)
@@ -751,6 +897,7 @@ class CustomSave(P4MayaModule):
                 success = False
                 warning.append("Non-manifold geometry was found. Please clean up the geometry before saving.")
 
+        # Check for ngons.
         if self.__options.get("ngons"):
             ngons = mel.eval(r'polyCleanupArgList 4 { "1","2","1","0","1","0","0","0","0","1e-05","0","1e-05","0",'
                              r'"1e-05","0","0","0","0" }')
@@ -758,6 +905,7 @@ class CustomSave(P4MayaModule):
                 success = False
                 warning.append("Ngons were found. Please clean up the geometry before saving.")
 
+        # Check for concave faces.
         if self.__options.get("concave"):
             concave = mel.eval(r'polyCleanupArgList 4 { "1","2","1","0","0","1","0","0","0","1e-05","0","1e-05","0",'
                                r'"1e-05","0","0","0","0" }')
@@ -765,6 +913,7 @@ class CustomSave(P4MayaModule):
                 success = False
                 warning.append("Concave faces were found. Please clean up the geometry before saving.")
 
+        # Check for frozen transforms.
         if self.__options.get("frozen_transform"):
             objects = cmds.ls(type="mesh", dag=True)
             transforms = cmds.listRelatives(objects, parent=True, fullPath=True)
@@ -777,6 +926,7 @@ class CustomSave(P4MayaModule):
                     warning.append("Not all transforms were frozen.")
                     break
 
+        # Check whether the objects are placed around the center.
         if self.__options.get("centered"):
             objects = cmds.ls(type="mesh", dag=True)
             for obj in objects:
@@ -792,6 +942,9 @@ class CustomSave(P4MayaModule):
         return success, warning
 
     def __create_callbacks(self):
+        """
+        Create a callback to intercept and possibly cancel saving.
+        """
         self.__cb_id = Om.MSceneMessage.addCheckCallback(Om.MSceneMessage.kBeforeSaveCheck,
                                                          lambda ret_code, client_data: self.__intercept_save(ret_code))
 
@@ -805,30 +958,35 @@ class CustomSave(P4MayaModule):
 
 # TODO: Open the actual settings window when pressing buttons
 class P4Bar(object):
-    __BAR_NAME = "P4ForMaya"
-    __WINDOW_NAME = "P4ForMaya_Window"
+    """
+    A bar displaying the current status of the P4 For Maya tool as well as keeping a log of all messages passed through.
+    """
+    __BAR_NAME = "P4ForMaya"                # The name of the docked control.
+    __WINDOW_NAME = "P4ForMaya_Window"      # The name of the window of the docked control.
 
     def __init__(self):
-        self.__handler = None
-        self.__docked_window = self.__BAR_NAME
-        self.__log_window = ""
-        self.__ui = ""
+        """
+        Initialises a new bar.
+        """
+        self.__docked_window = self.__BAR_NAME      # The docked window.
+        self.__log_window = ""                      # The window to log all messages in.
+        self.__ui = ""                              # The UI of the docked window.
 
-        self.__log_field = ""
-        self.__connected_icon = ""
-        self.__connected_text = ""
-        self.__log = []
-        self.__log_field = ""
-        self.__log_display = ""
+        self.__connected_icon = ""                  # The iconTextButton displaying the connection icon.
+        self.__connected_text = ""                  # The text indicating whether the tool is connected.
+        self.__log = []                             # An array containing all previously logged messages.
+        self.__log_field = ""                       # The text field displaying the last logged message.
+        self.__log_display = ""                     # The scroll field within the log window displaying all messages.
 
+        # Create the actual UI.
         self.__create_ui()
         self.__create_log_window()
 
-    def set_handler(self, handler):
-        self.__handler = handler
-        cmds.iconTextButton(self.__connected_icon, e=True, c=self.__handler.open_window)
-
     def set_connected(self, connected: bool):
+        """
+        Changes the P4 connection display to the specified boolean.
+        :param connected: A boolean indicating whether the tool is connected to P4.
+        """
         if connected:
             cmds.iconTextButton(self.__connected_icon, e=True, i="confirm.png")
             cmds.text(self.__connected_text, e=True, l="Connected")
@@ -1022,7 +1180,6 @@ class P4MayaFactory:
         window, layout, modules = self.__create_window()
         bar = P4Bar()
         controller = P4MayaControl(window, layout, bar)
-        bar.set_handler(controller)
         self.window = window
 
         for m in modules:
