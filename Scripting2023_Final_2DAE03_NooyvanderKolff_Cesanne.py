@@ -144,7 +144,6 @@ class Connector(P4MayaModule):
 
         # Also setting the P4 connection.
         self.__set_p4(False)
-        self._handler.set_connect(self)
 
     def __check_connection(self):
         """
@@ -160,14 +159,16 @@ class Connector(P4MayaModule):
 
                 try:
                     # Check the connection
-                    p4.connect()
+                    self._handler.p4_connect()
                     p4.run("login", "-s")
-                    p4.disconnect()
+                    self._handler.p4_release()
 
                 except P4Exception as inst:
                     # Throw the warning and kill the script job if not able to connect anymore.
                     log_msg = "\n".join(inst.errors)
                     msg_type = MessageType.WARNING
+
+                    self._handler.p4_release()
 
                     self.__set_p4(False)
                     self._send_to_log(log_msg, msg_type)
@@ -222,6 +223,7 @@ class Connector(P4MayaModule):
                 msg_type = MessageType.ERROR
 
         except P4Exception as inst:
+            p4.disconnect()
             # Catch error and display it.
             log_msg = "\n".join(inst.errors)
             if log_msg == "":
@@ -374,6 +376,7 @@ class Connector(P4MayaModule):
                 if c.get("Host") == p4.host:
                     clients.append(c.get("client"))
         except P4Exception:
+            p4.disconnect()
             clients = ["Please login to P4."]
 
         return port, user, client, clients
@@ -400,6 +403,7 @@ class Connector(P4MayaModule):
                 if c.get("Host") == p4.host:
                     clients.append(c.get("client"))
         except P4Exception:
+            p4.disconnect()
             clients = ["Please login to P4."]
 
         # Add the options to the menu.
@@ -816,6 +820,8 @@ class CustomSave(P4MayaModule):
                 self._handler.p4_release()
 
             except P4Exception as inst:
+                self._handler.p4_release()
+
                 # Handle P4Exception by canceling saving and informing the user.
                 message = inst.errors
                 if message == "":
@@ -968,6 +974,7 @@ class P4Bar(object):
         """
         Initialises a new bar.
         """
+        self.__handler = None                       # Sets the handler to be able to open the window.
         self.__docked_window = self.__BAR_NAME      # The docked window.
         self.__log_window = ""                      # The window to log all messages in.
         self.__ui = ""                              # The UI of the docked window.
@@ -982,6 +989,14 @@ class P4Bar(object):
         self.__create_ui()
         self.__create_log_window()
 
+    def set_handler(self, handler):
+        """
+        Sets the handler to the specified handler.
+        :param handler: The P4MayaControl object to be used.
+        """
+        self.__handler = handler
+        cmds.iconTextButton(self.__connected_icon, e=True, c=self.__handler.open_window)
+
     def set_connected(self, connected: bool):
         """
         Changes the P4 connection display to the specified boolean.
@@ -994,7 +1009,12 @@ class P4Bar(object):
             cmds.iconTextButton(self.__connected_icon, e=True, i="SP_MessageBoxCritical.png")
             cmds.text(self.__connected_text, e=True, l="Not Connected")
 
-    def add_to_log(self, log_message, msg_type: MessageType):
+    def add_to_log(self, log_message: str, msg_type: MessageType):
+        """
+        Adds a message to the log of the specified MessageType.
+        :param log_message: The message to be logged.
+        :param msg_type: The MessageType of the message.
+        """
         cmds.textField(self.__log_field, e=True, text=log_message)
         colours = [[0.17, 0.17, 0.17], [0.88, 0.70, 0.30], [1, 0.48, 0.48]]
         cmds.textField(self.__log_field, e=True, bgc=colours[msg_type.value])
@@ -1002,20 +1022,31 @@ class P4Bar(object):
         self.__update_log(log_message, msg_type)
 
     def manage_callbacks(self, cb_id):
+        """
+        Manage callbacks. Currently, can only handle one at a time.
+        :param cb_id: The ID of the callback to be handled.
+        """
         cmds.dockControl(self.__docked_control, e=True, cc=lambda: Om.MSceneMessage.removeCallback(cb_id))
 
     def __create_ui(self):
+        """
+        Creates the docked bar.
+        """
+
+        # Remove remains of old instance.
         if cmds.dockControl(self.__BAR_NAME, q=True, ex=True):
             cmds.deleteUI(self.__BAR_NAME)
         if cmds.window(self.__WINDOW_NAME, q=True, ex=True):
             cmds.deleteUI(self.__WINDOW_NAME)
 
+        # Create the window and overarching layout.
         self.__docked_window = cmds.window(self.__WINDOW_NAME, title="P4 For Maya")
         self.__ui = cmds.formLayout()
 
         self.__docked_control = cmds.dockControl(self.__BAR_NAME, content=self.__docked_window, a="bottom",
                                                  allowedArea=["bottom", "top"], l="P4 For Maya", ret=False)
 
+        # Create the right-click menu.
         connected = cmds.rowLayout(nc=2)
         cmds.popupMenu(b=3)
         cmds.menuItem(l="Change Connection")
@@ -1023,9 +1054,12 @@ class P4Bar(object):
         cmds.menuItem(l="See Changelist")
         cmds.menuItem(l="File History")
         cmds.menuItem(l="Checks")
+
+        # Create the connection display.
         self.__connected_icon = cmds.iconTextButton(style="iconOnly", i="confirm.png", h=18, w=18,)
         self.__connected_text = cmds.text(l="Connected")
 
+        # Create the log display.
         log = cmds.rowLayout(nc=3, p=self.__ui)
         cmds.text(l="P4:", w=50)
         self.__log_field = cmds.textField(ed=False, w=750, font="smallPlainLabelFont", bgc=[0.17, 0.17, 0.17])
@@ -1036,12 +1070,20 @@ class P4Bar(object):
 
     # TODO: Make it scaleable/Copyable/whatever :P
     def __create_log_window(self):
+        """
+        Creates the window containing all log messages.
+        """
         self.__log_window = cmds.window(w=400, h=500, title="P4 Log", ret=True)
         cmds.columnLayout(adj=True)
         self.__log_display = cmds.scrollField(h=500, wordWrap=True, ed=False)
         self.add_to_log("P4 For Maya started", MessageType.LOG)
 
     def __update_log(self, log_message, msg_type):
+        """
+        Updates the log with the new message and message type.
+        :param log_message: The message to log.
+        :param msg_type: The MessageType of the logged message.
+        """
         self.__log.append(f">> [{msg_type.name}] " + log_message)
         if len(self.__log) > 50:
             self.__log.remove(0)
@@ -1049,15 +1091,10 @@ class P4Bar(object):
         cmds.scrollField(self.__log_display, e=True, text=log)
 
     def __show_full_log(self):
+        """
+        Shows the log window.
+        """
         cmds.showWindow(self.__log_window)
-
-    def __log_test(self):
-        self.add_to_log("This is a warning, because warnings on line 500, I think. Not sure, because I didn't do "
-                        "anything", MessageType.WARNING)
-        self.add_to_log("Logging stuff here, yay!", MessageType.LOG)
-        self.add_to_log("More logging, logging is fun", MessageType.LOG)
-        self.add_to_log("WARNIIIIIING, line 4954, in file khdfg/dfg/dfg/h/dfg.ma, have fun", MessageType.WARNING)
-        self.add_to_log("Last log, I swear", MessageType.LOG)
 
 
 ############################################################################################################
@@ -1066,46 +1103,80 @@ class P4Bar(object):
 
 class P4MayaControl:
     """
-    Base class of P4 for Maya
+    Base class of P4 for Maya. Mediator between the modules and the bar and handles the P4 connection.
     """
-    def __init__(self, window, layout, bar: P4Bar):
-        self.p4 = P4()
-        self.window = window
-        self.__bar = bar
-        self.__connect = None
-        self.__connected = False
-        self.__callbacks = []
+    def __init__(self, window: str, layout: str, bar: P4Bar):
+        """
+        Initialises a new P4MayaControl object.
+        :param window: The window containing the settings and actions of the tool.
+        :param layout: The main layout of the window to add the connected display to.
+        :param bar: The bar object connected to the tool.
+        """
+        self.p4 = P4()              # The P4 instance used throughout the application.
+        self.window = window        # The window with the settings and actions of the tool.
+        self.__bar = bar            # The bar docked in Maya showing the current state and log.
+        self.__connect = None       # The connection module to log connection issues in.
+        self.__connected = False    # Whether the tool is connected to P4.
+        self.__callbacks = []       # The callbacks managed.
 
+        # Attach visibility of connection to the settings window.
         row = cmds.rowLayout(p=layout, nc=2)
         self.__connected_icon = cmds.iconTextButton(style="iconOnly", i="confirm.png", h=18, w=18, )
         self.__connected_text = cmds.text(l="Connected")
         cmds.formLayout(layout, e=True, af={(row, "bottom", 10), (row, "right", 10)})
 
-    def set_connect(self, connect):
-        self.__connect = connect
-
     def open_window(self):
+        """
+        Opens the settings and action window.
+        """
         cmds.showWindow(self.window)
 
     # TODO: Maybe at some point this will be properly managed
     def manage_callback(self, cb_id):
+        """
+        Adds the callback to be managed. (Currently, can only handle one.)
+        :param cb_id: The ID from callback to be managed.
+        """
         self.__callbacks.append(cb_id)
         self.__bar.manage_callbacks(cb_id)
 
-    def change_connection(self, port, user, client, connected):
-        self.p4.port = port
-        self.p4.user = user
-        self.p4.client = client
+    def change_connection(self, port: str, user: str, client: str, connected: bool):
+        """
+        Changes the connection of the tool to the given settings. Will disconnect if still connected.
+        :param port: The new port.
+        :param user: The new user.
+        :param client: The new workspace.
+        :param connected: Whether the tool is connected to P4.
+        """
+        self.p4_release()
+        if connected:
+            self.p4.port = port
+            self.p4.user = user
+            self.p4.client = client
 
         self.__set_connected(connected)
 
     def send_to_log(self, log_message, msg_type):
+        """
+        Sends the given message to be logged.
+        :param log_message: The message to be logged.
+        :param msg_type: The MessageType of the message.
+        """
         self.__bar.add_to_log(log_message, msg_type)
 
-    def is_connected(self):
+    def is_connected(self) -> bool:
+        """
+        Checks whether the tool is connected to P4.
+        :return: Boolean indicating whether the tool is connected.
+        """
         return self.__connected
 
     def __set_connected(self, connected: bool):
+        """
+        Sets the display of connection to the state specified.
+        :param connected: Boolean indicating whether the tool is connected.
+        """
+        # Set own display
         if connected:
             cmds.iconTextButton(self.__connected_icon, e=True, i="confirm.png")
             cmds.text(self.__connected_text, e=True, l="Connected")
@@ -1113,14 +1184,20 @@ class P4MayaControl:
             cmds.iconTextButton(self.__connected_icon, e=True, i="SP_MessageBoxCritical.png")
             cmds.text(self.__connected_text, e=True, l="Not Connected")
 
+        # Set the bar's display
         self.__bar.set_connected(connected)
         self.__connected = connected
 
     def p4_connect(self):
+        """
+        Connects to P4 and logs errors as necessary. Always use in conjunction with release.
+        """
         try:
             self.p4.connect()
             self.p4.run("login", "-s")
+
         except P4Exception as inst:
+            self.p4_release()
             log_msg = "\n".join(inst.errors)
             if log_msg == "":
                 log_msg = "The server given does not exist. Please try again."
@@ -1128,6 +1205,9 @@ class P4MayaControl:
             self.__connect.log_connection(log_msg)
 
     def p4_release(self):
+        """
+        Disconnects the P4 connection if it was connected.
+        """
         try:
             self.p4.disconnect()
         except P4Exception:
@@ -1136,24 +1216,45 @@ class P4MayaControl:
 
 
 class PreferenceHandler:
-    __PREF_FILE_NAME = "P4ForMaya_Preferences.json"
-    __OPTION_VAR_NAME = "P4ForMaya_Preferences_Location"
+    """
+    The preference handler of the P4 For Maya tool. It saves and loads preferences.
+    """
+    __PREF_FILE_NAME = "P4ForMaya_Preferences.json"         # The file name of the preference file.
+    __OPTION_VAR_NAME = "P4ForMaya_Preferences_Location"    # The option variable name of the Maya variable.
 
     def __init__(self):
-        self.__pref_file = ""
-        self.__preferences = {}
+        """
+        Initialises a Preference Handler.
+        """
+        self.__pref_file = ""       # The preference file's path
+        self.__preferences = {}     # A dictionary containing all the preferences
         self.__load_pref()
 
-    def get_pref(self, class_key, var_key):
+    def get_pref(self, class_key: str, var_key: str):
+        """
+        Gets the preferences for a specific variable of a specific class.
+        :param class_key: The key indicating the class to which the variable belongs.
+        :param var_key: The key indicating the variable to be gotten.
+        :return: The saved value of the variable.
+        """
         class_prefs = self.__preferences.get(class_key, {})
         return class_prefs.get(var_key, None)
 
     def set_pref(self, class_key, var_key, value):
+        """
+        Sets the preferences of the indicated variable of the specified class to the given value.
+        :param class_key: The key indicating the class to which the variable belongs.
+        :param var_key: The key indicating the variable to be set.
+        :param value: The value to which the variable should be set. Has to be JSON serializable.
+        """
         class_prefs = self.__preferences.get(class_key, {})
         class_prefs.update({var_key: value})
         self.__preferences.update({class_key: class_prefs})
 
     def save_pref(self):
+        """
+        Saves the preferences to the preference file.
+        """
         path = cmds.internalVar(upd=True)
         file = os.path.join(path, self.__PREF_FILE_NAME)
         with open(file, "w") as f:
@@ -1163,6 +1264,9 @@ class PreferenceHandler:
         cmds.optionVar(sv=(self.__OPTION_VAR_NAME, file))
 
     def __load_pref(self):
+        """
+        Loads the preferences into the preference handler.
+        """
         if cmds.optionVar(ex=self.__OPTION_VAR_NAME):
             path = cmds.optionVar(q=self.__OPTION_VAR_NAME)
 
@@ -1177,16 +1281,25 @@ class P4MayaFactory:
     Creates the P4 For Maya Application.
     """
     def __init__(self):
+        """
+        Create a new P4 For Maya setup.
+        """
         window, layout, modules = self.__create_window()
         bar = P4Bar()
         controller = P4MayaControl(window, layout, bar)
+        bar.set_handler(controller)
         self.window = window
 
         for m in modules:
             m.set_handler(controller)
 
     @staticmethod
-    def __create_modules(tabs_layout):
+    def __create_modules(tabs_layout: str) -> (PreferenceHandler, [P4MayaModule]):
+        """
+        Creates the modules of the tool and attaches their UI to the given layout.
+        :param tabs_layout: The layout to which the modules should be attached.
+        :return: A tuple containing the created Preference Handler and an array of the Maya Modules created.
+        """
         pref_handler = PreferenceHandler()
         connector = Connector(pref_handler, tabs_layout)
         checks = CustomSave(pref_handler, tabs_layout)
@@ -1196,7 +1309,12 @@ class P4MayaFactory:
         return pref_handler, (connector, changelog, rollback, checks)
 
     @classmethod
-    def __create_window(cls):
+    def __create_window(cls) -> (str, str, [P4MayaModule]):
+        """
+        Creates the settings window of the tool.
+        :return: A tuple containing the window, the overarching layout and a list of the created Maya Modules.
+        """
+        # Create the window and its main layout.
         # window = cmds.window("P4MayaWindow", l="P4 Settings and Actions")
         window = cmds.window(title="P4 Settings and Actions", width=350, height=500, ret=True)
         master_layout = cmds.formLayout(w=350)
@@ -1205,6 +1323,7 @@ class P4MayaFactory:
                                                    (tabs_layout, "right", 0),
                                                    (tabs_layout, "left", 0)])
 
+        # Create the modules and set the tab names.
         pref_handler, modules = cls.__create_modules(tabs_layout)
         for m in modules:
             ui = m.get_ui()
