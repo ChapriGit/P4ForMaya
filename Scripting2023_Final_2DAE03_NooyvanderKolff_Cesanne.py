@@ -235,10 +235,11 @@ class Connector(P4MayaModule):
 
         # Set up or kill the script job if necessary
         connected = msg_type is not MessageType.ERROR
-        if (not self._handler.is_connected()) and connected:
+        if (not self.__job) and connected:
             self.__job = cmds.scriptJob(e=["idle", lambda: self.__check_connection()])
-        elif self._handler.is_connected() and not connected:
+        elif self.__job and not connected:
             cmds.scriptJob(kill=self.__job)
+            self.__job = ""
 
         # Propagate to the handler.
         self.__set_p4(connected)
@@ -279,6 +280,10 @@ class Connector(P4MayaModule):
             self.__pref_handler.set_pref(self.__NAME, "P4PORT", port)
             self.__pref_handler.set_pref(self.__NAME, "P4USER", user)
             self.__pref_handler.set_pref(self.__NAME, "P4CLIENT", client)
+
+        if not connected and self.__job:
+            cmds.scriptJob(kill=self.__job)
+            self.__job = ""
 
         # Propagate the P4 connection and status.
         self._handler.change_connection(port, user, client, connected)
@@ -559,7 +564,10 @@ class CustomSave(P4MayaModule):
         self.__options.update({
             "outside_p4": False,
             "check_naming": True,
-            "naming_convention": ".*",
+            "naming_approach": 0,
+            "naming_convention_prefix": "",
+            "naming_convention_suffix": "",
+            "naming_convention_regex": ".*",
             "check_directory": False,
             "directory": "",
             "non_manifold": False,
@@ -664,12 +672,46 @@ class CustomSave(P4MayaModule):
         cmds.setParent("..")
 
         # Set up the naming option.
-        cmds.rowLayout(nc=3, adj=3, cat={(1, "left", 5), (2, "left", 5), (3, "left", 5)})
+        cmds.rowLayout(nc=2, cat={(1, "left", 5), (2, "left", 5)})
         cmds.checkBox(v=self.__options.get("check_naming"), l="",
                       cc=lambda val: self.__set_variable("check_naming", val))
         cmds.text(l="Naming Convention")
-        cmds.textField(text=self.__options.get("naming_convention"), pht="Regex",
-                       tcc=lambda val: self.__set_variable("naming_convention", val))
+        cmds.setParent("..")
+
+        # Set up the radio buttons for specifying the naming convention
+        cmds.columnLayout(adj=True, cat=("left", 25))
+        collection = cmds.radioCollection()
+
+        # Simple approach
+        cmds.rowLayout(nc=2, adj=2, rat=(1, "top", 0), cat=(2, "left", 10))
+        approach_simple = self.__options.get("naming_approach") == 0
+        simple = cmds.radioButton(l="Simple")
+        cmds.columnLayout(adj=True)
+        cmds.rowLayout(nc=2, adj=2)
+        cmds.text(l="Prefix: ")
+        prefix = cmds.textField(text=self.__options.get("naming_convention_prefix"), pht="Anything", en=approach_simple,
+                                tcc=lambda val: self.__set_variable("naming_convention_prefix", val))
+        cmds.setParent("..")
+        cmds.rowLayout(nc=2, adj=2)
+        cmds.text(l="Suffix: ")
+        suffix = cmds.textField(text=self.__options.get("naming_convention_suffix"), pht="Anything", en=approach_simple,
+                                tcc=lambda val: self.__set_variable("naming_convention_suffix", val))
+        cmds.setParent("..")
+        cmds.radioButton(simple, e=True, cc=lambda val: self.__set_naming_simple(prefix, suffix, val))
+
+        # Regex approach
+        cmds.setParent("..")
+        cmds.setParent("..")
+        cmds.rowLayout(nc=2, adj=2, cat=(2, "left", 10))
+        regex = cmds.radioButton(l="Regex")
+        convention = cmds.textField(text=self.__options.get("naming_convention_regex"), pht="Regex",
+                                    en=not approach_simple,
+                                    tcc=lambda val: self.__set_variable("naming_convention_regex", val))
+        cmds.radioButton(regex, e=True, cc=lambda val: self.__set_naming_regex(convention, val))
+
+        button = simple if approach_simple else regex
+        cmds.radioCollection(collection, e=True, select=button)
+        cmds.setParent("..")
         cmds.setParent("..")
 
         # Set up the directory option.
@@ -681,6 +723,15 @@ class CustomSave(P4MayaModule):
                        pht="Maya Files Directory", tcc=lambda val: self.__set_variable("directory", val))
         cmds.button(l="Browse")
         cmds.setParent("..")
+
+    def __set_naming_simple(self, prefix, suffix, val):
+        cmds.textField(prefix, e=True, en=val)
+        cmds.textField(suffix, e=True, en=val)
+        self.__set_variable("naming_approach", 0)
+
+    def __set_naming_regex(self, regex, val):
+        cmds.textField(regex, e=True, en=val)
+        self.__set_variable("naming_approach", 1)
 
     def __create_geometry_frame(self, frame):
         """
@@ -866,8 +917,14 @@ class CustomSave(P4MayaModule):
 
         # Check the naming convention of the file.
         if self.__options.get("check_naming"):
+            if self.__options.get("naming_approach") == 1:
+                pattern = self.__options.get("naming_convention_regex")
+            else:
+                pattern = self.__options.get("naming_convention_prefix") + ".*" \
+                          + self.__options.get("naming_convention_suffix")
+
             filename = os.path.basename(path)
-            if not re.match(self.__options.get("naming_convention"), filename):
+            if not re.match(pattern, filename):
                 warning.append(f"The naming convention with pattern {self.__options.get('naming_convention')} "
                                f"is not being respected.")
                 success = False
