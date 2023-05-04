@@ -154,12 +154,13 @@ class Connector(P4MayaModule):
 
             # Only check if the interval has passed.
             if datetime.now() - self.__last_checked > timedelta(seconds=interval):
+                print("Checked")
                 self.__last_checked = datetime.now()
                 p4 = self._handler.p4
 
                 try:
                     # Check the connection
-                    self._handler.p4_connect()
+                    self._handler.p4_connect(False)
                     p4.run("login", "-s")
                     self._handler.p4_release()
 
@@ -168,12 +169,8 @@ class Connector(P4MayaModule):
                     log_msg = "\n".join(inst.errors)
                     msg_type = MessageType.WARNING
 
-                    self._handler.p4_release()
-
-                    self.__set_p4(False)
+                    self.__set_p4(False, True)
                     self._send_to_log(log_msg, msg_type)
-
-                    cmds.scriptJob(kill=self.__job)
 
     def __connect(self):
         """
@@ -223,7 +220,6 @@ class Connector(P4MayaModule):
                 msg_type = MessageType.ERROR
 
         except P4Exception as inst:
-            p4.disconnect()
             # Catch error and display it.
             log_msg = "\n".join(inst.errors)
             if log_msg == "":
@@ -265,7 +261,7 @@ class Connector(P4MayaModule):
         log = "\n\n".join(self.__log)
         cmds.scrollField(self.__log_display, e=True, text=log)
 
-    def __set_p4(self, connected: bool):
+    def __set_p4(self, connected: bool, on_job: bool = False):
         """
         Sets the P4 connection to the specified connection.
         :param connected: True if connection to P4 can be established with the given parameters.
@@ -281,7 +277,7 @@ class Connector(P4MayaModule):
             self.__pref_handler.set_pref(self.__NAME, "P4USER", user)
             self.__pref_handler.set_pref(self.__NAME, "P4CLIENT", client)
 
-        if not connected and self.__job:
+        if not connected and self.__job and not on_job:
             cmds.scriptJob(kill=self.__job)
             self.__job = ""
 
@@ -381,7 +377,6 @@ class Connector(P4MayaModule):
                 if c.get("Host") == p4.host:
                     clients.append(c.get("client"))
         except P4Exception:
-            p4.disconnect()
             clients = ["Please login to P4."]
 
         return port, user, client, clients
@@ -408,7 +403,6 @@ class Connector(P4MayaModule):
                 if c.get("Host") == p4.host:
                     clients.append(c.get("client"))
         except P4Exception:
-            p4.disconnect()
             clients = ["Please login to P4."]
 
         # Add the options to the menu.
@@ -629,7 +623,7 @@ class CustomSave(P4MayaModule):
         error_check = cmds.columnLayout(adj=True, cat=("left", 25))
         cmds.rowLayout(h=5)
         cmds.setParent("..")
-        options = ["Error", "Warning", "No Checks"]
+        options = ["Error", "Warning", "Don't Check"]
         error_options = self.create_radio_group(error_check, options, default_opt=self.__state.value)
         for i in range(3):
             cmds.iconTextRadioButton(error_options[i], e=True, onc=lambda _, j=i: self.__set_state(j))
@@ -1012,7 +1006,7 @@ class CustomSave(P4MayaModule):
                                                          lambda ret_code, client_data: self.__intercept_save(ret_code))
 
     def get_pretty_name(self):
-        return "Checks"
+        return "Saving Criteria"
 
 
 ############################################################################################################
@@ -1245,7 +1239,7 @@ class P4MayaControl:
         self.__bar.set_connected(connected)
         self.__connected = connected
 
-    def p4_connect(self):
+    def p4_connect(self, handle_error: bool = True):
         """
         Connects to P4 and logs errors as necessary. Always use in conjunction with release.
         """
@@ -1255,18 +1249,22 @@ class P4MayaControl:
 
         except P4Exception as inst:
             self.p4_release()
-            log_msg = "\n".join(inst.errors)
-            if log_msg == "":
-                log_msg = "The server given does not exist. Please try again."
-            self.send_to_log(log_msg, MessageType.ERROR)
-            self.__connect.log_connection(log_msg)
+            if handle_error:
+                log_msg = "\n".join(inst.errors)
+                if log_msg == "":
+                    log_msg = "The server given does not exist. Please try again."
+                self.send_to_log(log_msg, MessageType.ERROR)
+                self.__connect.log_connection(log_msg)
+            else:
+                raise inst
 
     def p4_release(self):
         """
         Disconnects the P4 connection if it was connected.
         """
         try:
-            self.p4.disconnect()
+            if self.p4.connected():
+                self.p4.disconnect()
         except P4Exception:
             # Was not connected
             pass
