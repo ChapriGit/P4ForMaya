@@ -19,7 +19,7 @@ P4 For Maya: Automatic adding and checking out of Perforce Maya files from withi
             - Deselect files for submit
             - Keeps track of changelist even when Maya closed in between
             - Creates new one if old one got submitted or is not pending anymore
-            - Get pending changelists - Default seems not working
+            - Get pending changelist
             Errors:
                 - I don't really know yet, but probably a lot of them :P
         - Checking of conventions
@@ -429,8 +429,6 @@ class ChangeLog(P4MayaModule):
         super().__init__(master_layout, handler)
 
     def __get_changelist(self) -> []:
-        if self._handler is None:
-            return None
         if not self._handler.is_connected:
             return None
 
@@ -546,6 +544,7 @@ class Rollback(P4MayaModule):
         return "File History"
 
 
+# TODO: Log the checks
 class CustomSave(P4MayaModule):
     """
     A module pertaining to saving and P4. It allows for automatic adding and checking out of files and to first check
@@ -735,6 +734,7 @@ class CustomSave(P4MayaModule):
         cmds.text(l="Directory")
         cmds.textField(text=self.__options.get("directory"),
                        pht="Maya Files Directory", tcc=lambda val: self.__set_variable("directory", val))
+        # TODO: Implement the browse
         cmds.button(l="Browse")
         cmds.setParent("..")
 
@@ -1450,6 +1450,6 @@ factory = P4MayaFactory()
 #     print(e)
 
 # p4 -u USER opened -c default -C WORKSPACE
-# //gamep_group10/ArtAssets/Meshes/Test.ma#1 - add default change (text+l) by cnooyvanderkolff@cnooyvanderkolff_Laptop
+# //group10/ArtAssets/Meshes/Test.ma#1 - add default change (text+l) by cnooyvanderkolff@cnooyvanderkolff_Laptop
 # *exclusive*
 # File(s) not opened anywhere.
