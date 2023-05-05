@@ -617,43 +617,47 @@ class CustomSave(P4MayaModule):
 
     def _create_ui(self, master_layout):
         # Set up of the overarching layout.
-        self._ui = cmds.formLayout(p=master_layout)
+
+        self._ui = cmds.scrollLayout(w=350, h=400, p=master_layout)
+        form = cmds.formLayout(p=self._ui)
+
+        frame = cmds.frameLayout(l="General")
+        cmds.columnLayout(cat=("left", 20))
+        cmds.text(l="Response to Failing Criteria:", align="left", h=20)
 
         # Create the radio buttons for specifying the state.
-        error_check = cmds.columnLayout(adj=True, cat=("left", 25))
-        cmds.rowLayout(h=5)
-        cmds.setParent("..")
-        options = ["Error", "Warning", "Don't Check"]
+        error_check = cmds.columnLayout(adj=True, cat=("left", 15))
+        options = ["Error", "Warning", "None"]
         error_options = self.create_radio_group(error_check, options, default_opt=self.__state.value)
         for i in range(3):
             cmds.iconTextRadioButton(error_options[i], e=True, onc=lambda _, j=i: self.__set_state(j))
         cmds.setParent(error_check)
-        cmds.rowLayout(h=5)
+        cmds.rowLayout(h=10)
+        cmds.setParent("..")
         cmds.setParent("..")
 
         # Whether to check if saving outside a P4 structure while connected.
-        cmds.columnLayout(adj=True, cat=("left", 5))
         self.__p4_checkbox = cmds.checkBox(l="Also check if saved outside of P4 structure",
                                            v=self.__options.get("outside_p4"),
                                            cc=lambda val: self.__set_variable("outside_p4", val))
 
         # Set up of the path options.
-        self.__naming = cmds.frameLayout(l="Naming & Folder Structure", p=self._ui)
+        self.__naming = cmds.frameLayout(l="Naming & Folder Structure", p=form)
         self.__create_naming_frame(self.__naming)
 
         # Set up of the geometry options.
-        self.__geometry = cmds.frameLayout(l="Geometry", p=self._ui)
+        self.__geometry = cmds.frameLayout(l="Geometry", p=form)
         self.__create_geometry_frame(self.__geometry)
 
         # Add to form layout.
         margin_side = MARGIN_SIDE
-        cmds.formLayout(self._ui, e=True, af={(error_check, "top", 15), (self.__naming, "left", margin_side),
+        cmds.formLayout(form, e=True, af={(frame, "top", 15), (self.__naming, "left", margin_side),
                                               (self.__naming, "right", margin_side),
                                               (self.__geometry, "left", margin_side),
                                               (self.__geometry, "right", margin_side),
-                                              (error_check, "left", margin_side),
-                                              (error_check, "right", margin_side)},
-                        ac={(self.__geometry, "top", 15, self.__naming), (self.__naming, "top", 20, error_check)})
+                                              (frame, "left", margin_side), (frame, "right", margin_side),
+                                              (self.__geometry, "bottom", 15)},
+                        ac={(self.__geometry, "top", 15, self.__naming), (self.__naming, "top", 20, frame)})
 
     def __create_naming_frame(self, frame: str):
         """
@@ -995,6 +999,8 @@ class CustomSave(P4MayaModule):
                 if not (x_zero_centered and y_zero_centered and z_zero_centered):
                     success = False
                     warning.append("The meshes are not positioned around (0, 0, 0).")
+
+        mel.eval('print "Result: Checked File\\n"')
 
         return success, warning
 
