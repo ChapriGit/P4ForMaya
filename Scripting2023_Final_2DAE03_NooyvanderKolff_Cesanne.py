@@ -139,6 +139,8 @@ class Connector(P4MayaModule):
 
         super().__init__(master_layout)
 
+        self.log_connection("P4 For Maya Started")
+
     def set_handler(self, handler):
         self._handler = handler
 
@@ -504,7 +506,7 @@ class ChangeLog(P4MayaModule):
         return table
 
     def get_pretty_name(self):
-        return "Changelist"
+        return "Submit"
 
 
 class Rollback(P4MayaModule):
@@ -652,11 +654,11 @@ class CustomSave(P4MayaModule):
         # Add to form layout.
         margin_side = MARGIN_SIDE
         cmds.formLayout(form, e=True, af={(frame, "top", 15), (self.__naming, "left", margin_side),
-                                              (self.__naming, "right", margin_side),
-                                              (self.__geometry, "left", margin_side),
-                                              (self.__geometry, "right", margin_side),
-                                              (frame, "left", margin_side), (frame, "right", margin_side),
-                                              (self.__geometry, "bottom", 15)},
+                                          (self.__naming, "right", margin_side),
+                                          (self.__geometry, "left", margin_side),
+                                          (self.__geometry, "right", margin_side),
+                                          (frame, "left", margin_side), (frame, "right", margin_side),
+                                          (self.__geometry, "bottom", 15)},
                         ac={(self.__geometry, "top", 15, self.__naming), (self.__naming, "top", 20, frame)})
 
     def __create_naming_frame(self, frame: str):
@@ -1390,9 +1392,8 @@ class P4MayaFactory:
             ui = m.get_ui()
             cmds.tabLayout(tabs_layout, e=True, tabLabel=(ui, m.get_pretty_name()))
 
-        cmds.tabLayout(tabs_layout, e=True, mt=[2, 4])
         cmds.window(window, e=True, cc=pref_handler.save_pref)
-
+        cmds.tabLayout(tabs_layout, e=True, mt=[4, 2])
         return window, master_layout, modules
 
 
