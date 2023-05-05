@@ -72,22 +72,16 @@ class P4MayaModule(ABC):
     """
     Abstract class defining a module of the P4 For Maya script. Every module gets a tab in the settings window.
     """
-    def __init__(self, master_layout: str):
+    def __init__(self, master_layout: str, handler):
         """
         The initialisation of the abstract module.
         :param master_layout: The layout to which the module's UI needs to get attached to.
         """
-        self._handler = None
-        self._ui = ""
-        self._create_ui(master_layout)
-
-    def set_handler(self, handler):
-        """
-        Sets the handler.
-        :param handler: A P4MayaControl object handling the modules of the script.
-        """
         self._handler = handler
         self._handler.subscribe(self)
+
+        self._ui = ""
+        self._create_ui(master_layout)
 
     def get_ui(self) -> str:
         """
@@ -130,7 +124,7 @@ class Connector(P4MayaModule):
     """
     __NAME = "CONNECTOR"        # The saving name of the module.
 
-    def __init__(self, pref_handler, master_layout: str):
+    def __init__(self, pref_handler, master_layout: str, handler):
         """
         Initialises the Connector modules.
         :param pref_handler: The Preference Handler to save any preferences.
@@ -142,14 +136,9 @@ class Connector(P4MayaModule):
         self.__last_checked = datetime.now()        # Last time since checking the P4 connection.
         self.__job = ""                             # The ID of the script job checking the P4 connection.
 
-        super().__init__(master_layout)
+        super().__init__(master_layout, handler)
 
         self.log_connection("P4 For Maya Started")
-
-    def set_handler(self, handler):
-        self._handler = handler
-        self._handler.subscribe(self)
-
         # Also setting the P4 connection.
         self.__set_p4(False)
 
@@ -170,7 +159,6 @@ class Connector(P4MayaModule):
                     # Check the connection
                     self._handler.p4_connect(False)
                     p4.run("login", "-s")
-                    self._handler.p4_release()
 
                 except P4Exception as inst:
                     # Throw the warning and kill the script job if not able to connect anymore.
@@ -179,6 +167,9 @@ class Connector(P4MayaModule):
 
                     self.__set_p4(False, True)
                     self._send_to_log(log_msg, msg_type)
+
+                finally:
+                    self._handler.p4_release()
 
     def __connect(self):
         """
@@ -217,7 +208,6 @@ class Connector(P4MayaModule):
 
             # Check login.
             p4.run("login", "-s")
-            p4.disconnect()
 
             # Log result.
             if not incorrect_data:
@@ -233,6 +223,9 @@ class Connector(P4MayaModule):
             if log_msg == "":
                 log_msg = "The server given does not exist. Please try again."
             msg_type = MessageType.ERROR
+
+        finally:
+            p4.disconnect()
 
         # Send the message to own log.
         self.log_connection(log_msg)
@@ -377,7 +370,6 @@ class Connector(P4MayaModule):
         try:
             p4.connect()
             avail_clients = p4.run("clients", "-u", user)
-            p4.disconnect()
             clients = []
 
             # Only allow workspaces that are linked to the computer being used.
@@ -386,6 +378,9 @@ class Connector(P4MayaModule):
                     clients.append(c.get("client"))
         except P4Exception:
             clients = ["Please login to P4."]
+
+        finally:
+            p4.disconnect()
 
         return port, user, client, clients
 
@@ -403,7 +398,6 @@ class Connector(P4MayaModule):
         try:
             p4.connect()
             avail_clients = p4.run("clients", "-u", p4.user)
-            p4.disconnect()
             clients = []
 
             # Only allow workspaces that are linked to the computer being used.
@@ -412,6 +406,9 @@ class Connector(P4MayaModule):
                     clients.append(c.get("client"))
         except P4Exception:
             clients = ["Please login to P4."]
+
+        finally:
+            p4.disconnect()
 
         # Add the options to the menu.
         cmds.optionMenu(dropdown, e=True, dai=True)
@@ -428,11 +425,14 @@ class ChangeLog(P4MayaModule):
     Module to submit the changelog to P4. It displays the changelog and allows for a submit-message and selection of
     what to submit.
     """
-    def __init__(self, master_layout):
-        super().__init__(master_layout)
+    def __init__(self, master_layout, handler):
+        super().__init__(master_layout, handler)
 
-    def __get_changelist(self):
-        pass
+    def __get_changelist(self) -> []:
+        if self._handler is None:
+            return None
+        if not self._handler.is_connected:
+            return None
 
     def __refresh_changelist(self):
         pass
@@ -493,6 +493,14 @@ class ChangeLog(P4MayaModule):
         cmds.setParent("..")
 
         # Set up the actual table.
+        changelist = self.__get_changelist()
+
+        if changelist is None:
+            cmds.rowLayout(h=5)
+            cmds.setParent("..")
+            cmds.text(l="P4 is not connected.", fn="obliqueLabelFont")
+            return table
+
         cmds.rowColumnLayout(nc=4, adj=3, cw=[(1, 20), (2, 40), (4, 90)], cat=[(1, "left", 5)],
                              cs=[(1, 5), (2, 5), (3, 5), (4, 5)])
         cmds.checkBox(l="")
@@ -519,8 +527,8 @@ class Rollback(P4MayaModule):
     """
     Module to allow reverting the currently opened file if it is connected to the P4 file system.
     """
-    def __init__(self, master_layout):
-        super().__init__(master_layout)
+    def __init__(self, master_layout, handler):
+        super().__init__(master_layout, handler)
 
     def __get_history(self):
         pass
@@ -553,7 +561,7 @@ class CustomSave(P4MayaModule):
         WARNING = 1
         NONE = 2
 
-    def __init__(self, pref_handler, master_layout: str):
+    def __init__(self, pref_handler, master_layout: str, handler):
         """
         Initialises a CustomSave module with the given preference handler in the specified layout.
         :param pref_handler: The handler that goes over storing and loading of presets.
@@ -582,16 +590,13 @@ class CustomSave(P4MayaModule):
         self.__load_pref()
 
         # Create the UI.
-        super().__init__(master_layout)
+        super().__init__(master_layout, handler)
 
         # Set up the saving callback.
         self.__cb_id = 0
         self.__create_callbacks()
 
-    def set_handler(self, handler):
-        self._handler = handler
         self._handler.manage_callback(self.__cb_id)
-        self._handler.subscribe(self)
 
     def __load_pref(self):
         """
@@ -877,10 +882,8 @@ class CustomSave(P4MayaModule):
                         p4.run("add", file)
                     else:
                         p4.run("edit", file)
-                self._handler.p4_release()
 
             except P4Exception as inst:
-                self._handler.p4_release()
 
                 # Handle P4Exception by canceling saving and informing the user.
                 message = inst.errors
@@ -889,6 +892,9 @@ class CustomSave(P4MayaModule):
                 self._handler.send_to_log(message, MessageType.ERROR)
                 string_error = f"Saving canceled. \n {message}"
                 continue_save = False
+
+            finally:
+                self._handler.p4_release()
 
             # Set up the error message displayed.
             message = string_error if not continue_save else string_default
@@ -1030,7 +1036,6 @@ class CustomSave(P4MayaModule):
 # ############################################ DOCKABLE BAR ############################################## #
 ############################################################################################################
 
-# TODO: Open the actual settings window when pressing buttons
 class P4Bar(object):
     """
     A bar displaying the current status of the P4 For Maya tool as well as keeping a log of all messages passed through.
@@ -1146,7 +1151,7 @@ class P4Bar(object):
         self.__log_display = cmds.scrollField(h=500, wordWrap=True, ed=False)
         self.add_to_log("P4 For Maya started", MessageType.LOG)
 
-    def __update_log(self, log_message, msg_type):
+    def __update_log(self, log_message: str, msg_type: MessageType):
         """
         Updates the log with the new message and message type.
         :param log_message: The message to log.
@@ -1236,9 +1241,7 @@ class P4MayaControl:
             self.p4.user = user
             self.p4.client = client
 
-        if self.__connected is not connected:
-            self.__set_connected(connected)
-            self.refresh()
+        self.__set_connected(connected)
 
     def send_to_log(self, log_message, msg_type):
         """
@@ -1270,7 +1273,9 @@ class P4MayaControl:
 
         # Set the bar's display
         self.__bar.set_connected(connected)
-        self.__connected = connected
+        if self.__connected is not connected:
+            self.__connected = connected
+            self.refresh()
 
     def p4_connect(self, handle_error: bool = True):
         """
@@ -1374,37 +1379,44 @@ class PreferenceHandler:
 class P4MayaFactory:
     """
     Creates the P4 For Maya Application.
+    TODO: Redo documentation
     """
     def __init__(self):
         """
         Create a new P4 For Maya setup.
         """
-        window, layout, tabs, modules = self.__create_window()
+        window, layout, tabs = self.__create_window()
         bar = P4Bar()
         controller = P4MayaControl(window, layout, tabs, bar)
         bar.set_handler(controller)
+
+        self.__create_modules(window, tabs, controller)
+
         self.window = window
 
-        for m in modules:
-            m.set_handler(controller)
-
     @staticmethod
-    def __create_modules(tabs_layout: str) -> (PreferenceHandler, [P4MayaModule]):
+    def __create_modules(window: str, tabs_layout: str, handler: P4MayaControl):
         """
         Creates the modules of the tool and attaches their UI to the given layout.
         :param tabs_layout: The layout to which the modules should be attached.
         :return: A tuple containing the created Preference Handler and an array of the Maya Modules created.
         """
         pref_handler = PreferenceHandler()
-        connector = Connector(pref_handler, tabs_layout)
-        checks = CustomSave(pref_handler, tabs_layout)
-        changelog = ChangeLog(tabs_layout)
-        rollback = Rollback(tabs_layout)
 
-        return pref_handler, (connector, changelog, rollback, checks)
+        modules = [Connector(pref_handler, tabs_layout, handler),
+                   CustomSave(pref_handler, tabs_layout, handler),
+                   ChangeLog(tabs_layout, handler),
+                   Rollback(tabs_layout, handler)]
+
+        for m in modules:
+            ui = m.get_ui()
+            cmds.tabLayout(tabs_layout, e=True, tabLabel=(ui, m.get_pretty_name()))
+
+        cmds.window(window, e=True, cc=pref_handler.save_pref)
+        cmds.tabLayout(tabs_layout, e=True, mt=[4, 2])
 
     @classmethod
-    def __create_window(cls) -> (str, str, [P4MayaModule]):
+    def __create_window(cls) -> (str, str, str):
         """
         Creates the settings window of the tool.
         :return: A tuple containing the window, the overarching layout and a list of the created Maya Modules.
@@ -1418,18 +1430,24 @@ class P4MayaFactory:
                                                    (tabs_layout, "right", 0),
                                                    (tabs_layout, "left", 0)])
 
-        # Create the modules and set the tab names.
-        pref_handler, modules = cls.__create_modules(tabs_layout)
-        for m in modules:
-            ui = m.get_ui()
-            cmds.tabLayout(tabs_layout, e=True, tabLabel=(ui, m.get_pretty_name()))
-
-        cmds.window(window, e=True, cc=pref_handler.save_pref)
-        cmds.tabLayout(tabs_layout, e=True, mt=[4, 2])
-        return window, master_layout, tabs_layout, modules
+        return window, master_layout, tabs_layout
 
 
 factory = P4MayaFactory()
+
+# Gets file revisions, yay - Still need to properly get the stuff out, but look at the doc for that
+
+# p4 = P4()
+#
+# try:
+#   p4.connect()
+#   file = p4.run("where", file_path)
+#   depot_file = file[0].get("depotFile", None)
+#   for r in p4.run_filelog(depot_file)[0].revisions:
+#     print(r)
+#
+# except P4Exception as e:
+#     print(e)
 
 # p4 -u USER opened -c default -C WORKSPACE
 # //gamep_group10/ArtAssets/Meshes/Test.ma#1 - add default change (text+l) by cnooyvanderkolff@cnooyvanderkolff_Laptop
