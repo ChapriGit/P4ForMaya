@@ -87,6 +87,7 @@ class P4MayaModule(ABC):
         :param handler: A P4MayaControl object handling the modules of the script.
         """
         self._handler = handler
+        self._handler.subscribe(self)
 
     def get_ui(self) -> str:
         """
@@ -119,6 +120,9 @@ class P4MayaModule(ABC):
         """
         pass
 
+    def refresh(self):
+        pass
+
 
 class Connector(P4MayaModule):
     """
@@ -144,6 +148,7 @@ class Connector(P4MayaModule):
 
     def set_handler(self, handler):
         self._handler = handler
+        self._handler.subscribe(self)
 
         # Also setting the P4 connection.
         self.__set_p4(False)
@@ -586,6 +591,7 @@ class CustomSave(P4MayaModule):
     def set_handler(self, handler):
         self._handler = handler
         self._handler.manage_callback(self.__cb_id)
+        self._handler.subscribe(self)
 
     def __load_pref(self):
         """
@@ -1182,6 +1188,7 @@ class P4MayaControl:
         self.__connected = False    # Whether the tool is connected to P4.
         self.__callbacks = []       # The callbacks managed.
         self.__layout_settings = tab_layout
+        self.__observers = []
 
         # Attach visibility of connection to the settings window.
         row = cmds.rowLayout(p=layout, nc=2)
@@ -1189,11 +1196,14 @@ class P4MayaControl:
         self.__connected_text = cmds.text(l="Connected")
         cmds.formLayout(layout, e=True, af={(row, "bottom", 10), (row, "right", 10)})
 
+        cmds.tabLayout(tab_layout, e=True, sc=self.refresh)
+
     def open_window(self):
         """
         Opens the settings and action window.
         """
         cmds.showWindow(self.window)
+        self.refresh()
 
     def open_tab(self, index):
         """
@@ -1201,6 +1211,7 @@ class P4MayaControl:
         """
         cmds.showWindow(self.window)
         cmds.tabLayout(self.__layout_settings, e=True, sti=index+1)
+        self.refresh()
 
     # TODO: Maybe at some point this will be properly managed
     def manage_callback(self, cb_id):
@@ -1225,7 +1236,9 @@ class P4MayaControl:
             self.p4.user = user
             self.p4.client = client
 
-        self.__set_connected(connected)
+        if self.__connected is not connected:
+            self.__set_connected(connected)
+            self.refresh()
 
     def send_to_log(self, log_message, msg_type):
         """
@@ -1288,6 +1301,13 @@ class P4MayaControl:
         except P4Exception:
             # Was not connected
             pass
+
+    def subscribe(self, observer: P4MayaModule):
+        self.__observers.append(observer)
+
+    def refresh(self):
+        for o in self.__observers:
+            o.refresh()
 
 
 class PreferenceHandler:
@@ -1410,3 +1430,8 @@ class P4MayaFactory:
 
 
 factory = P4MayaFactory()
+
+# p4 -u USER opened -c default -C WORKSPACE
+# //gamep_group10/ArtAssets/Meshes/Test.ma#1 - add default change (text+l) by cnooyvanderkolff@cnooyvanderkolff_Laptop
+# *exclusive*
+# File(s) not opened anywhere.
