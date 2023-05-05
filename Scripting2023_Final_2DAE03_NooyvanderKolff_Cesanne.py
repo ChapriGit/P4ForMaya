@@ -19,6 +19,7 @@ P4 For Maya: Automatic adding and checking out of Perforce Maya files from withi
             - Deselect files for submit
             - Keeps track of changelist even when Maya closed in between
             - Creates new one if old one got submitted or is not pending anymore
+            - Get pending changelists - Default seems not working
             Errors:
                 - I don't really know yet, but probably a lot of them :P
         - Checking of conventions
@@ -156,7 +157,7 @@ class Connector(P4MayaModule):
 
             # Only check if the interval has passed.
             if datetime.now() - self.__last_checked > timedelta(seconds=interval):
-                print("Checked")
+                print("Checked P4 Connection")
                 self.__last_checked = datetime.now()
                 p4 = self._handler.p4
 
@@ -643,6 +644,8 @@ class CustomSave(P4MayaModule):
                                            v=self.__options.get("outside_p4"),
                                            cc=lambda val: self.__set_variable("outside_p4", val))
 
+        cmds.setParent(form)
+
         # Set up of the path options.
         self.__naming = cmds.frameLayout(l="Naming & Folder Structure", p=form)
         self.__create_naming_frame(self.__naming)
@@ -1108,11 +1111,11 @@ class P4Bar(object):
         # Create the right-click menu.
         connected = cmds.rowLayout(nc=2)
         cmds.popupMenu(b=3)
-        cmds.menuItem(l="Change Connection")
+        cmds.menuItem(l="Change Connection", c=lambda _: self.__handler.open_tab(0))
         cmds.menuItem(d=True)
-        cmds.menuItem(l="See Changelist")
-        cmds.menuItem(l="File History")
-        cmds.menuItem(l="Checks")
+        cmds.menuItem(l="File History",  c=lambda _: self.__handler.open_tab(1))
+        cmds.menuItem(l="Saving Criteria", c=lambda _: self.__handler.open_tab(2))
+        cmds.menuItem(l="Submit", c=lambda _: self.__handler.open_tab(3))
 
         # Create the connection display.
         self.__connected_icon = cmds.iconTextButton(style="iconOnly", i="confirm.png", h=18, w=18,)
@@ -1164,11 +1167,12 @@ class P4MayaControl:
     """
     Base class of P4 for Maya. Mediator between the modules and the bar and handles the P4 connection.
     """
-    def __init__(self, window: str, layout: str, bar: P4Bar):
+    def __init__(self, window: str, layout: str, tab_layout: str, bar: P4Bar):
         """
         Initialises a new P4MayaControl object.
         :param window: The window containing the settings and actions of the tool.
         :param layout: The main layout of the window to add the connected display to.
+        :param tab_layout: The tab layout of the window
         :param bar: The bar object connected to the tool.
         """
         self.p4 = P4()              # The P4 instance used throughout the application.
@@ -1177,6 +1181,7 @@ class P4MayaControl:
         self.__connect = None       # The connection module to log connection issues in.
         self.__connected = False    # Whether the tool is connected to P4.
         self.__callbacks = []       # The callbacks managed.
+        self.__layout_settings = tab_layout
 
         # Attach visibility of connection to the settings window.
         row = cmds.rowLayout(p=layout, nc=2)
@@ -1189,6 +1194,13 @@ class P4MayaControl:
         Opens the settings and action window.
         """
         cmds.showWindow(self.window)
+
+    def open_tab(self, index):
+        """
+        Opens the settings window on the specified tab.
+        """
+        cmds.showWindow(self.window)
+        cmds.tabLayout(self.__layout_settings, e=True, sti=index+1)
 
     # TODO: Maybe at some point this will be properly managed
     def manage_callback(self, cb_id):
@@ -1347,9 +1359,9 @@ class P4MayaFactory:
         """
         Create a new P4 For Maya setup.
         """
-        window, layout, modules = self.__create_window()
+        window, layout, tabs, modules = self.__create_window()
         bar = P4Bar()
-        controller = P4MayaControl(window, layout, bar)
+        controller = P4MayaControl(window, layout, tabs, bar)
         bar.set_handler(controller)
         self.window = window
 
@@ -1394,7 +1406,7 @@ class P4MayaFactory:
 
         cmds.window(window, e=True, cc=pref_handler.save_pref)
         cmds.tabLayout(tabs_layout, e=True, mt=[4, 2])
-        return window, master_layout, modules
+        return window, master_layout, tabs_layout, modules
 
 
 factory = P4MayaFactory()
