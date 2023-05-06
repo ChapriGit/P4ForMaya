@@ -428,16 +428,6 @@ class ChangeLog(P4MayaModule):
     def __init__(self, master_layout, handler):
         super().__init__(master_layout, handler)
 
-    def __get_changelist(self) -> []:
-        if not self._handler.is_connected:
-            return None
-
-    def __refresh_changelist(self):
-        pass
-
-    def __submit(self):
-        pass
-
     def _create_ui(self, master_layout):
         # Create the overarching layout.
         self._ui = cmds.formLayout(p=master_layout, w=200)
@@ -445,17 +435,19 @@ class ChangeLog(P4MayaModule):
 
         # Show what Changelist is being displayed.
         changelist_label = cmds.text(l="Current Changelist: ", fn="boldLabelFont")
-        changelist_nr = cmds.text(l="000000", fn="fixedWidthFont")
-        refresh_button = cmds.button(l="Refresh", w=70)
+        changelist_nr = cmds.text(l="Default", fn="fixedWidthFont")
+        refresh_button = cmds.button(l="Refresh", w=70, c=lambda _: self.refresh())
         cmds.formLayout(self._ui, e=True, af={(changelist_label, "left", margin_side + 5),
                                               (refresh_button, "right", margin_side), (changelist_label, "top", 20),
                                               (changelist_nr, "top", 19)},
                         ac=(changelist_nr, "left", 5, changelist_label))
 
         # Create the changelist itself.
-        table = self.__create_table()
-        cmds.formLayout(self._ui, e=True, af={(table, "left", margin_side), (table, "right", margin_side)},
-                        ac={(refresh_button, "top", 10, table), (table, "top", 10, changelist_label)})
+        self.__table = cmds.scrollLayout(vsb=True, cr=True, h=200, bgc=[0.22, 0.22, 0.22])
+        self.__create_table()
+        cmds.formLayout(self._ui, e=True, af={(self.__table, "left", margin_side),
+                                              (self.__table, "right", margin_side)},
+                        ac={(refresh_button, "top", 10, self.__table), (self.__table, "top", 10, changelist_label)})
 
         # Allow for adding a description.
         cmds.setParent(self._ui)
@@ -471,19 +463,18 @@ class ChangeLog(P4MayaModule):
                             (submit_button, "top", 10, self.__commit_msg)})
 
     # TODO: Actually fill the table.
-    def __create_table(self) -> str:
+    def __create_table(self):
         """
         Creates the changelog table.
         :return: The UI element containing the created table.
         """
         # Set up the overarching layout.
-        table = cmds.scrollLayout(vsb=True, cr=True, h=200, bgc=[0.22, 0.22, 0.22])
-        cmds.columnLayout(adj=True, cat=["right", 5])
+        self.__list = cmds.columnLayout(adj=True, cat=["right", 5], p=self.__table)
 
         # Set up the header row.
         cmds.rowColumnLayout(nc=4, adj=3, cw=[(1, 20), (2, 40), (4, 90)], bgc=[0.17, 0.17, 0.17],
                              cat=[(1, "left", 5)], cs=[(1, 5), (2, 5), (3, 5), (4, 5)], rs=(1, 5))
-        cmds.checkBox(l="")
+        main_checkbox = cmds.checkBox(l="", v=True)
         cmds.text(l="")
         cmds.text(l="Path", al="left")
         cmds.text(l="Last Edited", al="left")
@@ -497,25 +488,87 @@ class ChangeLog(P4MayaModule):
             cmds.rowLayout(h=5)
             cmds.setParent("..")
             cmds.text(l="P4 is not connected.", fn="obliqueLabelFont")
-            return table
+            return
+
+        if not changelist:
+            cmds.rowLayout(h=5)
+            cmds.setParent("..")
+            cmds.text(l="No files were opened.", fn="obliqueLabelFont")
+            return
 
         cmds.rowColumnLayout(nc=4, adj=3, cw=[(1, 20), (2, 40), (4, 90)], cat=[(1, "left", 5)],
                              cs=[(1, 5), (2, 5), (3, 5), (4, 5)])
-        cmds.checkBox(l="")
-        cmds.text(l="Add")
-        cmds.textField(text=r"C:\Developer\SourceArt\SM_Coffee.ma", ed=False)
-        now = datetime.now()
-        dt_string = now.strftime("%d/%m/%Y %H:%M")
-        cmds.text(l=dt_string)
+        self.__checkboxes = []
 
-        cmds.checkBox(l="")
-        cmds.text(l="Edit")
-        cmds.textField(text=r"C:\Developer\SourceArt\SM_Coffee.ma", ed=False)
-        now = datetime.now()
-        dt_string = now.strftime("%d/%m/%Y %H:%M")
-        cmds.text(l=dt_string)
+        for f in changelist:
+            action = f.get("action")
+            if action == "delete":
+                action = "del"
+            file = f.get("file")
+            modified_time = f.get("last_modified")
 
-        return table
+            self.__checkboxes.append(cmds.checkBox(l="", v=True))
+            cmds.text(l=action)
+            cmds.textField(text=file, ed=False)
+            if modified_time is not None:
+                dt_string = modified_time.strftime("%d/%m/%Y %H:%M")
+            else:
+                dt_string = ""
+            cmds.text(l=dt_string)
+
+        cmds.checkBox(main_checkbox, e=True, cc=lambda val: self.__check_all(val))
+
+    def __get_changelist(self) -> []:
+        if not self._handler.is_connected():
+            return None
+
+        changelist = []
+
+        try:
+            self._handler.p4_connect()
+            p4 = self._handler.p4
+
+            raw_changelist = p4.run("opened", "-u", p4.user, "-C", p4.client, "-c", "default")
+
+            info = p4.run_info()
+            root = info[0].get("clientRoot")
+
+            if raw_changelist:
+                for f in raw_changelist:
+                    depot_file = f.get("depotFile")
+                    action = f.get("action")
+
+                    if action != "delete":
+                        local_path = f.get("clientFile")
+                        local_path = local_path.partition("//" + p4.client + "/")[2]
+
+                        path = os.path.join(root, local_path)
+                        last_modified_time = os.path.getmtime(path)
+                        last_modified = datetime.fromtimestamp(last_modified_time)
+                    else:
+                        last_modified = None
+
+                    changelist.append({"action": action, "file": depot_file, "last_modified": last_modified})
+
+        except P4Exception as inst:
+            changelist = []
+            self._send_to_log(inst.value, MessageType.ERROR)
+
+        finally:
+            self._handler.p4_release()
+
+        return changelist
+
+    def __check_all(self, val):
+        for checkbox in self.__checkboxes:
+            cmds.checkBox(checkbox, e=True, v=val)
+
+    def __submit(self):
+        pass
+
+    def refresh(self):
+        cmds.deleteUI(self.__list)
+        self.__create_table()
 
     def get_pretty_name(self):
         return "Submit"
@@ -1201,8 +1254,6 @@ class P4MayaControl:
         self.__connected_text = cmds.text(l="Connected")
         cmds.formLayout(layout, e=True, af={(row, "bottom", 10), (row, "right", 10)})
 
-        cmds.tabLayout(tab_layout, e=True, sc=self.refresh)
-
     def open_window(self):
         """
         Opens the settings and action window.
@@ -1448,8 +1499,3 @@ factory = P4MayaFactory()
 #
 # except P4Exception as e:
 #     print(e)
-
-# p4 -u USER opened -c default -C WORKSPACE
-# //group10/ArtAssets/Meshes/Test.ma#1 - add default change (text+l) by cnooyvanderkolff@cnooyvanderkolff_Laptop
-# *exclusive*
-# File(s) not opened anywhere.
