@@ -63,6 +63,45 @@ class MessageType(Enum):
     WARNING = 1
     ERROR = 2
 
+
+############################################################################################################
+# ################################################# UI ################################################### #
+############################################################################################################
+
+class CollapsableRow(object):
+    def __init__(self, parent, header_info, header_widths, description, button_label, button_command=lambda _: None):
+        self.__ui = cmds.columnLayout(p=parent, adj=True)
+        header = cmds.rowLayout(nc=len(header_info) + 1, h=20)
+        self.__visible = False
+        self.__arrow = cmds.iconTextButton(style="iconOnly", i="arrowRight.png", w=20, c=lambda: self.collapse())
+
+        for i in range(len(header_widths)):
+            cmds.rowLayout(header, e=True, cw=[i+2, header_widths[i]])
+            cmds.text(l=header_info[i])
+
+        cmds.setParent(self.__ui)
+
+        self.__description = cmds.rowLayout(nc=3, adj=2, vis=self.__visible)
+        cmds.columnLayout(w=18)
+        cmds.setParent("..")
+        cmds.columnLayout(bgc=[0.27, 0.27, 0.27], cat=["both", 5], adj=True)
+        cmds.rowLayout(h=2)
+        cmds.setParent("..")
+        cmds.text(l=description, ww=True, al="left", fn="smallPlainLabelFont")
+        form = cmds.formLayout()
+        button = cmds.button(l=button_label, bgc=BLUE_COLOUR, c=button_command)
+        cmds.formLayout(form, e=True, af={(button, "top", 5), (button, "right", 0),
+                                          (button, "bottom", 5)})
+        cmds.columnLayout(w=3, p=self.__description)
+        cmds.setParent("..")
+
+    def collapse(self):
+        self.__visible = not self.__visible
+        collapse_img = 'arrowRight.png' if not self.__visible else 'arrowDown.png'
+        cmds.iconTextButton(self.__arrow, e=True, image=collapse_img)
+        cmds.rowLayout(self.__description, e=True, vis=self.__visible)
+
+
 ############################################################################################################
 # ############################################### MODULES ################################################ #
 ############################################################################################################
@@ -591,7 +630,39 @@ class Rollback(P4MayaModule):
         pass
 
     def _create_ui(self, master_layout):
-        self._ui = cmds.columnLayout(adj=True, p=master_layout)
+        self._ui = cmds.formLayout(p=master_layout)
+        # cmds.rowLayout(nc=2, cat=[2, "left", 5], h=25, adj=2)
+        # cmds.text(l="Current File:")
+        # cmds.textField(text="C:/Developer/ArtAssets/Meshes/Items/SM_Milk.ma", ed=False)
+
+        file_label = cmds.text(l="Current File: ", fn="boldLabelFont")
+        file_path = cmds.textField(text=r"SM_Milk.ma",
+                                   ed=False)
+        refresh_button = cmds.button(l="Refresh", w=70, c=lambda _: self.refresh())
+        cmds.formLayout(self._ui, e=True, af={(file_label, "left", MARGIN_SIDE + 5), (file_label, "top", 20),
+                                              (refresh_button, "right", MARGIN_SIDE),
+                                              (refresh_button, "top", 15),
+                                              (file_path, "top", 16)},
+                        ac={(file_path, "left", 0, file_label), (file_path, "right", 20, refresh_button)})
+
+        scroll = cmds.scrollLayout(cr=True, vsb=True, bgc=[0.22, 0.22, 0.22])
+        cmds.formLayout(self._ui, e=True, af={(scroll, "bottom", 20), (scroll, "left", MARGIN_SIDE),
+                                              (scroll, "right", MARGIN_SIDE)},
+                        ac={(scroll, "top", 10, refresh_button)})
+
+        scroll_field = cmds.columnLayout(adj=True)
+
+        for i in range(6):
+            now = datetime.now()
+            dt_string = now.strftime("%d/%m/%Y %H:%M")
+            header = [6-i, "Default", dt_string, "cnooyvanderkolff"]
+            w_header = [20, 50, 90, 100]
+
+            row = CollapsableRow(scroll_field, header, w_header, "Have a Description. Just for you, isn't that fun! "
+                                                                 "I'll even make it a little longer. Just so we have "
+                                                                 "more lines.", "Get This Revision")
+            if i == 0:
+                row.collapse()
 
     def get_pretty_name(self):
         return "File History"
@@ -1182,7 +1253,7 @@ class P4Bar(object):
         cmds.menuItem(l="Submit", c=lambda _: self.__handler.open_tab(3))
 
         # Create the connection display.
-        self.__connected_icon = cmds.iconTextButton(style="iconOnly", i="confirm.png", h=18, w=18,)
+        self.__connected_icon = cmds.iconTextButton(style="iconOnly", i="confirm.png", h=18, w=18)
         self.__connected_text = cmds.text(l="Connected")
 
         # Create the log display.
@@ -1250,9 +1321,11 @@ class P4MayaControl:
 
         # Attach visibility of connection to the settings window.
         row = cmds.rowLayout(p=layout, nc=2)
-        self.__connected_icon = cmds.iconTextButton(style="iconOnly", i="confirm.png", h=18, w=18, )
+        self.__connected_icon = cmds.iconTextButton(style="iconOnly", i="confirm.png", h=18, w=18)
         self.__connected_text = cmds.text(l="Connected")
         cmds.formLayout(layout, e=True, af={(row, "bottom", 10), (row, "right", 10)})
+
+        cmds.tabLayout(tab_layout, e=True, sc=self.refresh)
 
     def open_window(self):
         """
