@@ -202,9 +202,12 @@ class Connector(P4MayaModule):
                 except P4Exception as inst:
                     # Throw the warning and kill the script job if not able to connect anymore.
                     log_msg = "\n".join(inst.errors)
+                    if log_msg == "":
+                        log_msg = "Something went wrong. P4 connection broken. Please, check your network connection."
                     msg_type = MessageType.WARNING
 
                     self.__set_p4(False, True)
+                    self.log_connection(log_msg)
                     self._send_to_log(log_msg, msg_type)
 
                 finally:
@@ -260,7 +263,8 @@ class Connector(P4MayaModule):
             # Catch error and display it.
             log_msg = "\n".join(inst.errors)
             if log_msg == "":
-                log_msg = "The server given does not exist. Please try again."
+                log_msg = "The server given can not be reached. Please, check your network connection and the " \
+                          "server you provided."
             msg_type = MessageType.ERROR
 
         finally:
@@ -475,18 +479,19 @@ class ChangeLog(P4MayaModule):
         # Show what Changelist is being displayed.
         changelist_label = cmds.text(l="Current Changelist: ", fn="boldLabelFont")
         changelist_nr = cmds.text(l="Default", fn="fixedWidthFont")
-        refresh_button = cmds.button(l="Refresh", w=70, c=lambda _: self.refresh())
+        refresh_button = cmds.iconTextButton(style="iconAndTextHorizontal", i="refresh.png", l="Refresh",
+                                             c=lambda: self.refresh())
         cmds.formLayout(self._ui, e=True, af={(changelist_label, "left", margin_side + 5),
                                               (refresh_button, "right", margin_side), (changelist_label, "top", 20),
-                                              (changelist_nr, "top", 19)},
-                        ac=(changelist_nr, "left", 5, changelist_label))
+                                              (changelist_nr, "top", 19), (refresh_button, "top", 15)},
+                        ac={(changelist_nr, "left", 5, changelist_label)})
 
         # Create the changelist itself.
-        self.__table = cmds.scrollLayout(vsb=True, cr=True, h=200, bgc=[0.22, 0.22, 0.22])
+        self.__table = cmds.scrollLayout(vsb=True, cr=True, h=205, bgc=[0.22, 0.22, 0.22])
         self.__create_table()
         cmds.formLayout(self._ui, e=True, af={(self.__table, "left", margin_side),
                                               (self.__table, "right", margin_side)},
-                        ac={(refresh_button, "top", 10, self.__table), (self.__table, "top", 10, changelist_label)})
+                        ac={(self.__table, "top", 10, refresh_button)})
 
         # Allow for adding a description.
         cmds.setParent(self._ui)
@@ -498,7 +503,7 @@ class ChangeLog(P4MayaModule):
                                               (self.__commit_msg, "left", margin_side),
                                               (self.__commit_msg, "right", margin_side),
                                               (submit_button, "bottom", 10)},
-                        ac={(desc_label, "top", 5, refresh_button), (self.__commit_msg, "top", 5, desc_label),
+                        ac={(desc_label, "top", 20, self.__table), (self.__commit_msg, "top", 5, desc_label),
                             (submit_button, "top", 10, self.__commit_msg)})
 
     # TODO: Actually fill the table.
@@ -514,7 +519,7 @@ class ChangeLog(P4MayaModule):
         cmds.rowColumnLayout(nc=4, adj=3, cw=[(1, 20), (2, 40), (4, 90)], bgc=[0.17, 0.17, 0.17],
                              cat=[(1, "left", 5)], cs=[(1, 5), (2, 5), (3, 5), (4, 5)], rs=(1, 5))
         main_checkbox = cmds.checkBox(l="", v=True)
-        cmds.text(l="")
+        cmds.text(l="", h=18)
         cmds.text(l="Path", al="left")
         cmds.text(l="Last Edited", al="left")
 
@@ -631,14 +636,12 @@ class Rollback(P4MayaModule):
 
     def _create_ui(self, master_layout):
         self._ui = cmds.formLayout(p=master_layout)
-        # cmds.rowLayout(nc=2, cat=[2, "left", 5], h=25, adj=2)
-        # cmds.text(l="Current File:")
-        # cmds.textField(text="C:/Developer/ArtAssets/Meshes/Items/SM_Milk.ma", ed=False)
 
         file_label = cmds.text(l="Current File: ", fn="boldLabelFont")
         file_path = cmds.textField(text=r"SM_Milk.ma",
                                    ed=False)
-        refresh_button = cmds.button(l="Refresh", w=70, c=lambda _: self.refresh())
+        refresh_button = cmds.iconTextButton(l="Refresh", c=lambda: self.refresh(), style="iconAndTextHorizontal",
+                                             i="refresh.png")
         cmds.formLayout(self._ui, e=True, af={(file_label, "left", MARGIN_SIDE + 5), (file_label, "top", 20),
                                               (refresh_button, "right", MARGIN_SIDE),
                                               (refresh_button, "top", 15),
@@ -652,11 +655,20 @@ class Rollback(P4MayaModule):
 
         scroll_field = cmds.columnLayout(adj=True)
 
+        w_header = [20, 60, 90, 100]
+        cmds.rowLayout(nc=5, h=20, cw={(1, 20), (2, w_header[0]), (3, w_header[1]), (4, w_header[2]), (5, w_header[3])},
+                       bgc=[0.17, 0.17, 0.17])
+        cmds.text(l="")
+        cmds.text(l="Nr")
+        cmds.text(l="Changelist")
+        cmds.text(l="Submitted")
+        cmds.text(l="User")
+        cmds.setParent("..")
+
         for i in range(6):
             now = datetime.now()
             dt_string = now.strftime("%d/%m/%Y %H:%M")
             header = [6-i, "Default", dt_string, "cnooyvanderkolff"]
-            w_header = [20, 50, 90, 100]
 
             row = CollapsableRow(scroll_field, header, w_header, "Have a Description. Just for you, isn't that fun! "
                                                                  "I'll even make it a little longer. Just so we have "
