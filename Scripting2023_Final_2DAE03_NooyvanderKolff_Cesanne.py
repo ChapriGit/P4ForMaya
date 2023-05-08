@@ -69,22 +69,43 @@ class MessageType(Enum):
 ############################################################################################################
 
 class CollapsableRow(object):
-    def __init__(self, parent, header_info, header_widths, description, button_label, button_command=lambda _: None):
+    """
+    A collapsible UI element with a rowLayout as header and a collapsible description and button.
+    """
+    def __init__(self, parent: str, header_info: [str], header_widths: [float], description: str,
+                 button_label: str, button_command=lambda _: None):
+        """
+        Creates a Collapsable Row element.
+
+        :param parent: The parent UI to which the row should attach.
+        :param header_info: An array containing the labels present in the header.
+        :param header_widths: An array containing the widths of the columns in the header.
+        :param description: The description shown when not collapsed.
+        :param button_label: The label of the button shown when not collapse.
+        :param function button_command: The command executed when the button is pressed.
+        """
+        # Set up of the main layout.
         self.__ui = cmds.columnLayout(p=parent, adj=True)
+
+        # Setup of the header
         header = cmds.rowLayout(nc=len(header_info) + 1, h=20)
         self.__visible = False
         self.__arrow = cmds.iconTextButton(style="iconOnly", i="arrowRight.png", w=20, c=lambda: self.collapse())
 
+        # Fill the header
         for i in range(len(header_widths)):
             cmds.rowLayout(header, e=True, cw=[i+2, header_widths[i]])
             cmds.text(l=header_info[i])
 
         cmds.setParent(self.__ui)
 
+        # Setup of the collapsible part.
         self.__description = cmds.rowLayout(nc=3, adj=2, vis=self.__visible)
+        # Padding
         cmds.columnLayout(w=18)
         cmds.setParent("..")
 
+        # Body of the collapsible part.
         cmds.columnLayout(bgc=[0.27, 0.27, 0.27], cat=["both", 5], adj=True)
         cmds.rowLayout(h=2)
         cmds.setParent("..")
@@ -94,10 +115,14 @@ class CollapsableRow(object):
         cmds.formLayout(form, e=True, af={(button, "top", 5), (button, "right", 0),
                                           (button, "bottom", 5)})
 
+        # Padding
         cmds.columnLayout(w=3, p=self.__description)
         cmds.setParent("..")
 
     def collapse(self):
+        """
+        Collapses and shows the body of the UI element.
+        """
         self.__visible = not self.__visible
         collapse_img = 'arrowRight.png' if not self.__visible else 'arrowDown.png'
         cmds.iconTextButton(self.__arrow, e=True, image=collapse_img)
@@ -117,6 +142,7 @@ class P4MayaModule(ABC):
         """
         The initialisation of the abstract module.
         :param master_layout: The layout to which the module's UI needs to get attached to.
+        :param P4MayaControl handler: The control element the module has to use.
         """
         self._handler = handler
         self._handler.subscribe(self)
@@ -156,6 +182,9 @@ class P4MayaModule(ABC):
         pass
 
     def refresh(self):
+        """
+        Forces the module to retrieve its information again and refresh its layout.
+        """
         pass
 
 
@@ -170,6 +199,7 @@ class Connector(P4MayaModule):
         Initialises the Connector modules.
         :param pref_handler: The Preference Handler to save any preferences.
         :param master_layout: The layout to which the UI of the module should be attached.
+        :param P4MayaControl handler: The control element the module has to use.
         """
         self.__pref_handler = pref_handler          # The preference handler to save and load preferences.
 
@@ -178,8 +208,8 @@ class Connector(P4MayaModule):
         self.__job = ""                             # The ID of the script job checking the P4 connection.
 
         super().__init__(master_layout, handler)
-
         self.log_connection("P4 For Maya Started")
+
         # Also setting the P4 connection.
         self.__set_p4(False)
 
@@ -311,6 +341,7 @@ class Connector(P4MayaModule):
         """
         Sets the P4 connection to the specified connection.
         :param connected: True if connection to P4 can be established with the given parameters.
+        :param on_job: True if called from the script job connected to the script. By default False.
         """
         # Get the parameters.
         port = cmds.textField(self.__port, q=True, text=True)
@@ -347,6 +378,7 @@ class Connector(P4MayaModule):
         wsp_label = cmds.text(l="Workspace: ", h=height)
         self.__workspace = cmds.textField(h=height, text=client)
 
+        # Set up the form.
         margin_side = MARGIN_SIDE + 15
         margin_middle = 10
         margin_top = 5
@@ -508,11 +540,9 @@ class ChangeLog(P4MayaModule):
                         ac={(desc_label, "top", 20, self.__table), (self.__commit_msg, "top", 5, desc_label),
                             (submit_button, "top", 10, self.__commit_msg)})
 
-    # TODO: Actually fill the table.
     def __create_table(self):
         """
         Creates the changelog table.
-        :return: The UI element containing the created table.
         """
         # Set up the overarching layout.
         self.__list = cmds.columnLayout(adj=True, cat=["right", 5], p=self.__table)
@@ -527,25 +557,29 @@ class ChangeLog(P4MayaModule):
 
         cmds.setParent("..")
 
-        # Set up the actual table.
+        # Get the current change list.
         changelist = self.__get_changelist()
 
+        # P4 is not connected.
         if changelist is None:
             cmds.rowLayout(h=5)
             cmds.setParent("..")
             cmds.text(l="P4 is not connected.", fn="obliqueLabelFont")
             return
 
+        # Change list is empty.
         if not changelist:
             cmds.rowLayout(h=5)
             cmds.setParent("..")
             cmds.text(l="No files were opened.", fn="obliqueLabelFont")
             return
 
+        # Create the actual table.
         cmds.rowColumnLayout(nc=4, adj=3, cw=[(1, 20), (2, 40), (4, 90)], cat=[(1, "left", 5)],
                              cs=[(1, 5), (2, 5), (3, 5), (4, 5)])
         self.__checkboxes = []
 
+        # For each entry, create a row.
         for f in changelist:
             action = f.get("action")
             if action == "delete":
@@ -564,12 +598,19 @@ class ChangeLog(P4MayaModule):
 
         cmds.checkBox(main_checkbox, e=True, cc=lambda val: self.__check_all(val))
 
-    def __get_changelist(self) -> []:
+    def __get_changelist(self) -> [{}]:
+        """
+        Retrieves the files in the current default change list if connected. Will send an error to the message log in
+        case P4 returns an error.
+        :return: A list containing a dictionary for every file containing the action, file path and last modified date
+            of the file. Returns None if not connected.
+        """
+        # Only even attempt if the program is connected.
         if not self._handler.is_connected():
             return None
 
+        # Retrieve the changelist.
         changelist = []
-
         try:
             self._handler.p4_connect()
             p4 = self._handler.p4
@@ -579,11 +620,14 @@ class ChangeLog(P4MayaModule):
             info = p4.run_info()
             root = info[0].get("clientRoot")
 
+            # Get the required information for each entry.
             if raw_changelist:
                 for f in raw_changelist:
                     depot_file = f.get("depotFile")
                     action = f.get("action")
 
+                    # If the action is delete, the file is not in the file system anymore.
+                    # Otherwise, however, get the time last modified.
                     if action != "delete":
                         local_path = f.get("clientFile")
                         local_path = local_path.partition("//" + p4.client + "/")[2]
@@ -596,6 +640,7 @@ class ChangeLog(P4MayaModule):
 
                     changelist.append({"action": action, "file": depot_file, "last_modified": last_modified})
 
+        # Catch P4Exceptions
         except P4Exception as inst:
             changelist = []
             self._send_to_log(inst.value, MessageType.ERROR)
@@ -605,7 +650,12 @@ class ChangeLog(P4MayaModule):
 
         return changelist
 
-    def __check_all(self, val):
+    def __check_all(self, val: bool):
+        """
+        Check or uncheck all the checkboxes in the change list.
+
+        :param val: The new value of the checkboxes.
+        """
         for checkbox in self.__checkboxes:
             cmds.checkBox(checkbox, e=True, v=val)
 
@@ -631,7 +681,16 @@ class Rollback(P4MayaModule):
     def refresh(self):
         self.__create_table()
 
-    def __get_history(self):
+    def __get_history(self) -> [{}]:
+        """
+        Retrieves the file's history from P4 if on P4 and sets the file name in the UI. Will display any possible
+        P4Exceptions.
+        :return: A list containing all the revision entries as dictionaries containing the change list number
+            ('changelist'), the date of submission ('submit_date'), revision number ('nr'), user that submitted the
+            change ('user') and the description of the change list ('description'). Returns None in case the handler
+            is not connected.
+        """
+        # Retrieve the current file path and set the name.
         file_path = cmds.file(q=True, sn=True)
         file_name = os.path.basename(file_path)
         cmds.textField(self.__file, e=True, text=file_name, fn="plainLabelFont")
@@ -639,12 +698,15 @@ class Rollback(P4MayaModule):
         if file_path == "":
             cmds.textField(self.__file, e=True, text="Untitled", fn="obliqueLabelFont")
 
+        # If not connected, return None.
         if not self._handler.is_connected():
             return None
 
+        # If the file has never been saved, return empty.
         if file_path == "":
             return []
 
+        # Retrieve the revisions.
         p4 = self._handler.p4
         revisions = []
 
@@ -653,13 +715,15 @@ class Rollback(P4MayaModule):
             file = p4.run("where", file_path)
             depot_file = file[0].get("depotFile", None)
             revs = p4.run_filelog(depot_file)[0].revisions
+
+            # For each entry, create the dictionary.
             for r in revs:
                 description = p4.run("describe", "-s", r.change)[0].get("desc")
                 revisions.append({"changelist": r.change, "user": r.user, "submit_date": r.time, "nr": r.rev,
                                   "description": description})
 
+        # Catch the P4 Exceptions.
         except P4Exception as inst:
-            # Throw the warning and kill the script job if not able to connect anymore.
             log_msg = "\n".join(inst.errors)
             if log_msg == "":
                 log_msg = "\n".join(inst.warnings)
@@ -669,6 +733,7 @@ class Rollback(P4MayaModule):
             if log_msg.endswith("no such file(s)."):
                 return []
 
+            # If not just not found, display the error in the log.
             msg_type = MessageType.ERROR
             self._send_to_log(log_msg, msg_type)
             return []
@@ -682,8 +747,10 @@ class Rollback(P4MayaModule):
         pass
 
     def _create_ui(self, master_layout):
+        # Set up the main UI layout.
         self._ui = cmds.formLayout(p=master_layout)
 
+        # Display the file name at the top with a refresh button.
         file_label = cmds.text(l="Current File: ", fn="boldLabelFont")
         self.__file = cmds.textField(text=r"SM_Milk.ma",
                                      ed=False)
@@ -695,17 +762,24 @@ class Rollback(P4MayaModule):
                                               (self.__file, "top", 16)},
                         ac={(self.__file, "left", 0, file_label), (self.__file, "right", 20, refresh_button)})
 
+        # Set up the scroll layout for the revision table.
         self.__scroll = cmds.scrollLayout(cr=True, vsb=True, bgc=[0.22, 0.22, 0.22])
         cmds.formLayout(self._ui, e=True, af={(self.__scroll, "bottom", 20), (self.__scroll, "left", MARGIN_SIDE),
                                               (self.__scroll, "right", MARGIN_SIDE)},
                         ac={(self.__scroll, "top", 10, refresh_button)})
 
+        # Create the table.
         self.__create_table()
 
     def __create_table(self):
+        """
+        Creates the revision table and hooks it up to the provided scroll field.
+        """
+        # Empty out the old layout if anything is present.
         if self.__scroll_field:
             cmds.deleteUI(self.__scroll_field)
 
+        # Set up the main layout with header.
         self.__scroll_field = cmds.columnLayout(adj=True, p=self.__scroll)
         w_header = [20, 55, 95, 100]
         cmds.rowLayout(nc=5, h=20, cw={(1, 20), (2, w_header[0]), (3, w_header[1]), (4, w_header[2]), (5, w_header[3])},
@@ -717,20 +791,24 @@ class Rollback(P4MayaModule):
         cmds.text(l="User")
         cmds.setParent("..")
 
+        # Retrieve the file history.
         revs = self.__get_history()
 
+        # If not connected.
         if revs is None:
             cmds.rowLayout(h=5)
             cmds.setParent("..")
             cmds.text(l="P4 is not connected.", fn="obliqueLabelFont")
             return
 
+        # If no revisions.
         if not revs:
             cmds.rowLayout(h=5)
             cmds.setParent("..")
             cmds.text(l="No revisions were found.", fn="obliqueLabelFont")
             return
 
+        # Create a row for each revision.
         collapse = True
         for r in revs:
             date = r.get("submit_date")
@@ -769,9 +847,9 @@ class CustomSave(P4MayaModule):
         :param master_layout: The layout in which the module should dock its own.
         """
         # Set up the default values.
-        self.__pref_handler = pref_handler
-        self.__state = CustomSave.CheckType.ERROR
-        self.__options = {}
+        self.__pref_handler = pref_handler              # The preference handler.
+        self.__state = CustomSave.CheckType.ERROR       # State of what to do with errors on checks.
+        self.__options = {}                             # The dictionary containing all savable variables.
         self.__options.update({
             "outside_p4": False,
             "check_naming": True,
@@ -794,9 +872,8 @@ class CustomSave(P4MayaModule):
         super().__init__(master_layout, handler)
 
         # Set up the saving callback.
-        self.__cb_id = 0
+        self.__cb_id = 0                                # The saving callback. Called to check the file before saving.
         self.__create_callbacks()
-
         self._handler.manage_callback(self.__cb_id)
 
     def __load_pref(self):
@@ -832,10 +909,10 @@ class CustomSave(P4MayaModule):
 
     def _create_ui(self, master_layout):
         # Set up of the overarching layout.
-
         self._ui = cmds.scrollLayout(w=350, h=400, p=master_layout)
         form = cmds.formLayout(p=self._ui)
 
+        # General options regarding the state of the module.
         frame = cmds.frameLayout(l="General")
         cmds.columnLayout(cat=("left", 20))
         cmds.text(l="Response to Failing Criteria:", align="left", h=20)
@@ -940,16 +1017,29 @@ class CustomSave(P4MayaModule):
         cmds.button(l="Browse", c=lambda _: self.__browse(dir_field))
         cmds.setParent("..")
 
-    def __set_naming_simple(self, prefix, suffix, val):
+    def __set_naming_simple(self, prefix: str, suffix: str, val: bool):
+        """
+        Changes the naming method from or to simple.
+
+        :param prefix: The text field containing the prefix.
+        :param suffix: The text field containing the suffix.
+        :param val: Whether the control is enabled, otherwise False.
+        """
         cmds.textField(prefix, e=True, en=val)
         cmds.textField(suffix, e=True, en=val)
         self.__set_variable("naming_approach", 0)
 
-    def __set_naming_regex(self, regex, val):
+    def __set_naming_regex(self, regex: str, val: bool):
+        """
+        Changes the naming method from or to regex.
+
+        :param regex: The text Field containing the regex.
+        :param val: Whether the control is enabled, otherwise False.
+        """
         cmds.textField(regex, e=True, en=val)
         self.__set_variable("naming_approach", 1)
 
-    def __create_geometry_frame(self, frame):
+    def __create_geometry_frame(self, frame: str):
         """
         Creates the frame containing the options pertaining to the geometry in the file.
         :param frame: The parent frame layout in which to dock the geometry layout.
@@ -997,13 +1087,21 @@ class CustomSave(P4MayaModule):
         cmds.rowLayout(nc=3, p=layout, cat=(1, "left", offset))
         radio_collection = cmds.iconTextRadioCollection()
         buttons = []
+
+        # Create a button for every option.
         for opt in options:
             button = cmds.iconTextRadioButton(st='textOnly', l=opt, w=width, bgc=[0.4, 0.4, 0.4], h=20)
             buttons.append(button)
+
+        # Set the default button.
         cmds.iconTextRadioCollection(radio_collection, e=True, select=buttons[default_opt])
         return buttons
 
-    def __browse(self, field):
+    def __browse(self, field: str):
+        """
+        Lets the user select a folder and sets it as the preferred directory check.
+        :param field: The text field for the directory.
+        """
         directory = cmds.fileDialog2(ds=1, fm=2) or [""]
         directory = directory[0]
         if directory:
@@ -1025,7 +1123,7 @@ class CustomSave(P4MayaModule):
             return False
 
     @staticmethod
-    def p4_in_workspace(p4, path):
+    def p4_in_workspace(p4: P4, path: str):
         """
         Checks whether a directory path is part of the P4 file structure.
         :param p4: The connected P4 connection.
@@ -1267,7 +1365,7 @@ class P4Bar(object):
         self.__log = []                             # An array containing all previously logged messages.
         self.__log_field = ""                       # The text field displaying the last logged message.
         self.__log_display = ""                     # The scroll field within the log window displaying all messages.
-        self.__callbacks = []
+        self.__callbacks = []                       # The callbacks to be removed when the docked layout closes.
 
         # Create the actual UI.
         self.__create_ui()
@@ -1276,7 +1374,7 @@ class P4Bar(object):
     def set_handler(self, handler):
         """
         Sets the handler to the specified handler.
-        :param handler: The P4MayaControl object to be used.
+        :param P4MayaControl handler: The P4MayaControl object to be used.
         """
         self.__handler = handler
         cmds.iconTextButton(self.__connected_icon, e=True, c=self.__handler.open_window)
@@ -1313,6 +1411,9 @@ class P4Bar(object):
         self.__callbacks.append(cb_id)
 
     def __remove_callbacks(self):
+        """
+        Removes all the current callbacks.
+        """
         for cb in self.__callbacks:
             Om.MSceneMessage.removeCallback(cb)
 
@@ -1322,7 +1423,6 @@ class P4Bar(object):
         """
         Creates the docked bar.
         """
-
         # Remove remains of old instance.
         if cmds.dockControl(self.__BAR_NAME, q=True, ex=True):
             cmds.deleteUI(self.__BAR_NAME)
@@ -1410,8 +1510,8 @@ class P4MayaControl:
         self.__connect = None       # The connection module to log connection issues in.
         self.__connected = False    # Whether the tool is connected to P4.
         self.__callbacks = []       # The callbacks managed.
-        self.__layout_settings = tab_layout
-        self.__observers = []
+        self.__layout_settings = tab_layout     # The overarching tab layout of the window.
+        self.__observers = []       # The observers to be notified for refresh. (P4 Modules)
 
         # Attach visibility of connection to the settings window.
         row = cmds.rowLayout(p=layout, nc=2)
@@ -1428,6 +1528,7 @@ class P4MayaControl:
         cmds.showWindow(self.window)
         self.refresh()
 
+        # While the window is open, check for a new scene being loaded in to update the file history.
         if not self.__callbacks:
             cb_new = Om.MSceneMessage.addCallback(Om.MSceneMessage.kAfterNew, lambda _: self.refresh())
             cb_open = Om.MSceneMessage.addCallback(Om.MSceneMessage.kAfterOpen, lambda _: self.refresh())
@@ -1435,6 +1536,9 @@ class P4MayaControl:
             self.__callbacks.append(cb_open)
 
     def __remove_callbacks(self):
+        """
+        Removes all current callbacks.
+        """
         for cb in self.__callbacks:
             Om.MSceneMessage.removeCallback(cb)
 
@@ -1448,10 +1552,9 @@ class P4MayaControl:
         cmds.tabLayout(self.__layout_settings, e=True, sti=index+1)
         self.refresh()
 
-    # TODO: Maybe at some point this will be properly managed
     def manage_callback(self, cb_id):
         """
-        Adds the callback to be managed. (Currently, can only handle one.)
+        Adds the callback to be managed and removed when the docked control closes.
         :param cb_id: The ID from callback to be managed.
         """
         self.__bar.manage_callbacks(cb_id)
@@ -1472,7 +1575,7 @@ class P4MayaControl:
 
         self.__set_connected(connected)
 
-    def send_to_log(self, log_message, msg_type):
+    def send_to_log(self, log_message: str, msg_type: MessageType):
         """
         Sends the given message to be logged.
         :param log_message: The message to be logged.
@@ -1489,7 +1592,7 @@ class P4MayaControl:
 
     def __set_connected(self, connected: bool):
         """
-        Sets the display of connection to the state specified.
+        Sets the display of connection to the state specified. Will refresh all observers if the connection changes.
         :param connected: Boolean indicating whether the tool is connected.
         """
         # Set own display
@@ -1514,6 +1617,7 @@ class P4MayaControl:
             self.p4.connect()
             self.p4.run("login", "-s")
 
+        # Handle the P4 exception
         except P4Exception as inst:
             self.p4_release()
             if handle_error:
@@ -1537,9 +1641,16 @@ class P4MayaControl:
             pass
 
     def subscribe(self, observer: P4MayaModule):
+        """
+        Adds an observer to be notified of refreshes.
+        :param observer: The observer to be added.
+        """
         self.__observers.append(observer)
 
     def refresh(self):
+        """
+        Notifies all observers of a refresh.
+        """
         for o in self.__observers:
             o.refresh()
 
@@ -1569,7 +1680,7 @@ class PreferenceHandler:
         class_prefs = self.__preferences.get(class_key, {})
         return class_prefs.get(var_key, None)
 
-    def set_pref(self, class_key, var_key, value):
+    def set_pref(self, class_key: str, var_key: str, value):
         """
         Sets the preferences of the indicated variable of the specified class to the given value.
         :param class_key: The key indicating the class to which the variable belongs.
@@ -1608,7 +1719,6 @@ class PreferenceHandler:
 class P4MayaFactory:
     """
     Creates the P4 For Maya Application.
-    TODO: Redo documentation
     """
     def __init__(self):
         """
@@ -1621,22 +1731,26 @@ class P4MayaFactory:
 
         self.__create_modules(window, tabs, controller)
 
+        # For Debug purposes
         self.window = window
 
     @staticmethod
     def __create_modules(window: str, tabs_layout: str, handler: P4MayaControl):
         """
         Creates the modules of the tool and attaches their UI to the given layout.
+        :param window: The settings window.
         :param tabs_layout: The layout to which the modules should be attached.
-        :return: A tuple containing the created Preference Handler and an array of the Maya Modules created.
+        :param handler: The control module to be used.
         """
         pref_handler = PreferenceHandler()
 
+        # Create the modules.
         modules = [Connector(pref_handler, tabs_layout, handler),
                    CustomSave(pref_handler, tabs_layout, handler),
                    ChangeLog(tabs_layout, handler),
                    Rollback(tabs_layout, handler)]
 
+        # Add the tabs to the window.
         for m in modules:
             ui = m.get_ui()
             cmds.tabLayout(tabs_layout, e=True, tabLabel=(ui, m.get_pretty_name()))
@@ -1648,7 +1762,7 @@ class P4MayaFactory:
     def __create_window(cls) -> (str, str, str):
         """
         Creates the settings window of the tool.
-        :return: A tuple containing the window, the overarching layout and a list of the created Maya Modules.
+        :return: A tuple containing the window, the overarching layout and the tabs layout contained within.
         """
         # Create the window and its main layout.
         # window = cmds.window("P4MayaWindow", l="P4 Settings and Actions")
@@ -1663,4 +1777,3 @@ class P4MayaFactory:
 
 
 factory = P4MayaFactory()
-
