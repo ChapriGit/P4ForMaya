@@ -84,14 +84,16 @@ class CollapsableRow(object):
         self.__description = cmds.rowLayout(nc=3, adj=2, vis=self.__visible)
         cmds.columnLayout(w=18)
         cmds.setParent("..")
+
         cmds.columnLayout(bgc=[0.27, 0.27, 0.27], cat=["both", 5], adj=True)
         cmds.rowLayout(h=2)
         cmds.setParent("..")
-        cmds.text(l=description, ww=True, al="left", fn="smallPlainLabelFont")
+        cmds.text(l=description, ww=True, al="left", fn="smallFixedWidthFont", w=250)
         form = cmds.formLayout()
         button = cmds.button(l=button_label, bgc=BLUE_COLOUR, c=button_command)
         cmds.formLayout(form, e=True, af={(button, "top", 5), (button, "right", 0),
                                           (button, "bottom", 5)})
+
         cmds.columnLayout(w=3, p=self.__description)
         cmds.setParent("..")
 
@@ -623,58 +625,122 @@ class Rollback(P4MayaModule):
     Module to allow reverting the currently opened file if it is connected to the P4 file system.
     """
     def __init__(self, master_layout, handler):
+        self.__scroll_field = ""
         super().__init__(master_layout, handler)
 
+    def refresh(self):
+        self.__create_table()
+
     def __get_history(self):
-        pass
+        file_path = cmds.file(q=True, sn=True)
+        file_name = os.path.basename(file_path)
+        cmds.textField(self.__file, e=True, text=file_name, fn="plainLabelFont")
+
+        if file_path == "":
+            cmds.textField(self.__file, e=True, text="Untitled", fn="obliqueLabelFont")
+
+        if not self._handler.is_connected():
+            return None
+
+        if file_path == "":
+            return []
+
+        p4 = self._handler.p4
+        revisions = []
+
+        try:
+            self._handler.p4_connect()
+            file = p4.run("where", file_path)
+            depot_file = file[0].get("depotFile", None)
+            revs = p4.run_filelog(depot_file)[0].revisions
+            for r in revs:
+                description = p4.run("describe", "-s", r.change)[0].get("desc")
+                revisions.append({"changelist": r.change, "user": r.user, "submit_date": r.time, "nr": r.rev,
+                                  "description": description})
+
+        except P4Exception as inst:
+            # Throw the warning and kill the script job if not able to connect anymore.
+            log_msg = "\n".join(inst.errors)
+            if log_msg == "":
+                log_msg = "\n".join(inst.warnings)
+                if log_msg == "":
+                    log_msg = "File History could not be retrieved because of an unknown error."
+
+            if log_msg.endswith("no such file(s)."):
+                return []
+
+            msg_type = MessageType.ERROR
+            self._send_to_log(log_msg, msg_type)
+            return []
+
+        finally:
+            self._handler.p4_release()
+
+        return revisions
 
     def __rollback(self, revision):
-        pass
-
-    def __get_latest(self):
         pass
 
     def _create_ui(self, master_layout):
         self._ui = cmds.formLayout(p=master_layout)
 
         file_label = cmds.text(l="Current File: ", fn="boldLabelFont")
-        file_path = cmds.textField(text=r"SM_Milk.ma",
-                                   ed=False)
+        self.__file = cmds.textField(text=r"SM_Milk.ma",
+                                     ed=False)
         refresh_button = cmds.iconTextButton(l="Refresh", c=lambda: self.refresh(), style="iconAndTextHorizontal",
                                              i="refresh.png")
         cmds.formLayout(self._ui, e=True, af={(file_label, "left", MARGIN_SIDE + 5), (file_label, "top", 20),
                                               (refresh_button, "right", MARGIN_SIDE),
                                               (refresh_button, "top", 15),
-                                              (file_path, "top", 16)},
-                        ac={(file_path, "left", 0, file_label), (file_path, "right", 20, refresh_button)})
+                                              (self.__file, "top", 16)},
+                        ac={(self.__file, "left", 0, file_label), (self.__file, "right", 20, refresh_button)})
 
-        scroll = cmds.scrollLayout(cr=True, vsb=True, bgc=[0.22, 0.22, 0.22])
-        cmds.formLayout(self._ui, e=True, af={(scroll, "bottom", 20), (scroll, "left", MARGIN_SIDE),
-                                              (scroll, "right", MARGIN_SIDE)},
-                        ac={(scroll, "top", 10, refresh_button)})
+        self.__scroll = cmds.scrollLayout(cr=True, vsb=True, bgc=[0.22, 0.22, 0.22])
+        cmds.formLayout(self._ui, e=True, af={(self.__scroll, "bottom", 20), (self.__scroll, "left", MARGIN_SIDE),
+                                              (self.__scroll, "right", MARGIN_SIDE)},
+                        ac={(self.__scroll, "top", 10, refresh_button)})
 
-        scroll_field = cmds.columnLayout(adj=True)
+        self.__create_table()
 
-        w_header = [20, 60, 90, 100]
+    def __create_table(self):
+        if self.__scroll_field:
+            cmds.deleteUI(self.__scroll_field)
+
+        self.__scroll_field = cmds.columnLayout(adj=True, p=self.__scroll)
+        w_header = [20, 55, 95, 100]
         cmds.rowLayout(nc=5, h=20, cw={(1, 20), (2, w_header[0]), (3, w_header[1]), (4, w_header[2]), (5, w_header[3])},
                        bgc=[0.17, 0.17, 0.17])
         cmds.text(l="")
         cmds.text(l="Nr")
-        cmds.text(l="Changelist")
+        cmds.text(l="Change")
         cmds.text(l="Submitted")
         cmds.text(l="User")
         cmds.setParent("..")
 
-        for i in range(6):
-            now = datetime.now()
-            dt_string = now.strftime("%d/%m/%Y %H:%M")
-            header = [6-i, "Default", dt_string, "cnooyvanderkolff"]
+        revs = self.__get_history()
 
-            row = CollapsableRow(scroll_field, header, w_header, "Have a Description. Just for you, isn't that fun! "
-                                                                 "I'll even make it a little longer. Just so we have "
-                                                                 "more lines.", "Get This Revision")
-            if i == 0:
+        if revs is None:
+            cmds.rowLayout(h=5)
+            cmds.setParent("..")
+            cmds.text(l="P4 is not connected.", fn="obliqueLabelFont")
+            return
+
+        if not revs:
+            cmds.rowLayout(h=5)
+            cmds.setParent("..")
+            cmds.text(l="No revisions were found.", fn="obliqueLabelFont")
+            return
+
+        collapse = True
+        for r in revs:
+            date = r.get("submit_date")
+            dt_string = date.strftime("%d/%m/%Y %H:%M")
+            header = [r.get("nr"), r.get("changelist"), dt_string, r.get("user")]
+
+            row = CollapsableRow(self.__scroll_field, header, w_header, r.get("description"), "Get This Revision")
+            if collapse:
                 row.collapse()
+                collapse = False
 
     def get_pretty_name(self):
         return "File History"
@@ -868,10 +934,10 @@ class CustomSave(P4MayaModule):
         cmds.checkBox(v=self.__options.get("check_directory"), l="",
                       cc=lambda val: self.__set_variable("check_directory", val))
         cmds.text(l="Directory")
-        cmds.textField(text=self.__options.get("directory"),
-                       pht="Maya Files Directory", tcc=lambda val: self.__set_variable("directory", val))
-        # TODO: Implement the browse
-        cmds.button(l="Browse")
+        dir_field = cmds.textField(text=self.__options.get("directory"), pht="Maya Files Directory",
+                                   tcc=lambda val: self.__set_variable("directory", val))
+
+        cmds.button(l="Browse", c=lambda _: self.__browse(dir_field))
         cmds.setParent("..")
 
     def __set_naming_simple(self, prefix, suffix, val):
@@ -936,6 +1002,13 @@ class CustomSave(P4MayaModule):
             buttons.append(button)
         cmds.iconTextRadioCollection(radio_collection, e=True, select=buttons[default_opt])
         return buttons
+
+    def __browse(self, field):
+        directory = cmds.fileDialog2(ds=1, fm=2) or [""]
+        directory = directory[0]
+        if directory:
+            cmds.textField(field, e=True, text=directory)
+            self.__set_variable("directory", directory)
 
     @staticmethod
     def p4_exists(p4: P4, path: str) -> bool:
@@ -1071,11 +1144,12 @@ class CustomSave(P4MayaModule):
             if self.__options.get("naming_approach") == 1:
                 pattern = self.__options.get("naming_convention_regex")
             else:
-                pattern = self.__options.get("naming_convention_prefix") + ".*" \
-                          + self.__options.get("naming_convention_suffix")
+                pattern = re.escape(self.__options.get("naming_convention_prefix")) + ".*" \
+                          + re.escape(self.__options.get("naming_convention_suffix"))
 
             filename = os.path.basename(path)
-            if not re.match(pattern, filename):
+            pure_filename = os.path.splitext(filename)[0]
+            if not re.match(pattern, filename) and not re.match(pattern, pure_filename):
                 warning.append(f"The naming convention with pattern {self.__options.get('naming_convention')} "
                                f"is not being respected.")
                 success = False
@@ -1193,6 +1267,7 @@ class P4Bar(object):
         self.__log = []                             # An array containing all previously logged messages.
         self.__log_field = ""                       # The text field displaying the last logged message.
         self.__log_display = ""                     # The scroll field within the log window displaying all messages.
+        self.__callbacks = []
 
         # Create the actual UI.
         self.__create_ui()
@@ -1235,7 +1310,13 @@ class P4Bar(object):
         Manage callbacks. Currently, can only handle one at a time.
         :param cb_id: The ID of the callback to be handled.
         """
-        cmds.dockControl(self.__docked_control, e=True, cc=lambda: Om.MSceneMessage.removeCallback(cb_id))
+        self.__callbacks.append(cb_id)
+
+    def __remove_callbacks(self):
+        for cb in self.__callbacks:
+            Om.MSceneMessage.removeCallback(cb)
+
+        self.__callbacks = []
 
     def __create_ui(self):
         """
@@ -1253,7 +1334,8 @@ class P4Bar(object):
         self.__ui = cmds.formLayout()
 
         self.__docked_control = cmds.dockControl(self.__BAR_NAME, content=self.__docked_window, a="bottom",
-                                                 allowedArea=["bottom", "top"], l="P4 For Maya", ret=False)
+                                                 allowedArea=["bottom", "top"], l="P4 For Maya", ret=False,
+                                                 cc=self.__remove_callbacks)
 
         # Create the right-click menu.
         connected = cmds.rowLayout(nc=2)
@@ -1337,7 +1419,7 @@ class P4MayaControl:
         self.__connected_text = cmds.text(l="Connected")
         cmds.formLayout(layout, e=True, af={(row, "bottom", 10), (row, "right", 10)})
 
-        cmds.tabLayout(tab_layout, e=True, sc=self.refresh)
+        cmds.window(self.window, e=True, cc=self.__remove_callbacks)
 
     def open_window(self):
         """
@@ -1346,11 +1428,23 @@ class P4MayaControl:
         cmds.showWindow(self.window)
         self.refresh()
 
+        if not self.__callbacks:
+            cb_new = Om.MSceneMessage.addCallback(Om.MSceneMessage.kAfterNew, lambda _: self.refresh())
+            cb_open = Om.MSceneMessage.addCallback(Om.MSceneMessage.kAfterOpen, lambda _: self.refresh())
+            self.__callbacks.append(cb_new)
+            self.__callbacks.append(cb_open)
+
+    def __remove_callbacks(self):
+        for cb in self.__callbacks:
+            Om.MSceneMessage.removeCallback(cb)
+
+        self.__callbacks = []
+
     def open_tab(self, index):
         """
         Opens the settings window on the specified tab.
         """
-        cmds.showWindow(self.window)
+        self.open_window()
         cmds.tabLayout(self.__layout_settings, e=True, sti=index+1)
         self.refresh()
 
@@ -1360,7 +1454,6 @@ class P4MayaControl:
         Adds the callback to be managed. (Currently, can only handle one.)
         :param cb_id: The ID from callback to be managed.
         """
-        self.__callbacks.append(cb_id)
         self.__bar.manage_callbacks(cb_id)
 
     def change_connection(self, port: str, user: str, client: str, connected: bool):
@@ -1571,16 +1664,3 @@ class P4MayaFactory:
 
 factory = P4MayaFactory()
 
-# Gets file revisions, yay - Still need to properly get the stuff out, but look at the doc for that
-
-# p4 = P4()
-#
-# try:
-#   p4.connect()
-#   file = p4.run("where", file_path)
-#   depot_file = file[0].get("depotFile", None)
-#   for r in p4.run_filelog(depot_file)[0].revisions:
-#     print(r)
-#
-# except P4Exception as e:
-#     print(e)
