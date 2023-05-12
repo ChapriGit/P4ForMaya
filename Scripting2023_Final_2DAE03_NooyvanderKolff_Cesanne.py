@@ -46,7 +46,12 @@ from abc import ABC, abstractmethod
 from datetime import datetime, timedelta
 from enum import Enum
 
-from P4 import P4, P4Exception
+try:
+    p4_installed = True
+    from P4 import P4, P4Exception
+except ModuleNotFoundError as e:
+    p4_installed = False
+
 from maya import cmds, OpenMaya as Om, mel
 import maya.api.OpenMaya as Api_Om
 
@@ -341,7 +346,7 @@ class Connector(P4MayaModule):
         """
         Sets the P4 connection to the specified connection.
         :param connected: True if connection to P4 can be established with the given parameters.
-        :param on_job: True if called from the script job connected to the script. By default False.
+        :param on_job: True if called from the script job connected to the script. By default, False.
         """
         # Get the parameters.
         port = cmds.textField(self.__port, q=True, text=True)
@@ -1109,10 +1114,10 @@ class CustomSave(P4MayaModule):
             self.__set_variable("directory", directory)
 
     @staticmethod
-    def p4_exists(p4: P4, path: str) -> bool:
+    def p4_exists(p4, path: str) -> bool:
         """
         Checks whether the file already exists in the P4 file structure.
-        :param p4: The connected P4 connection.
+        :param P4 p4: The connected P4 connection.
         :param path: The path of the file to check.
         :return: True if the file already exists on P4, otherwise False.
         """
@@ -1123,10 +1128,10 @@ class CustomSave(P4MayaModule):
             return False
 
     @staticmethod
-    def p4_in_workspace(p4: P4, path: str):
+    def p4_in_workspace(p4, path: str):
         """
         Checks whether a directory path is part of the P4 file structure.
-        :param p4: The connected P4 connection.
+        :param P4 p4: The connected P4 connection.
         :param path: The path of the directory to check.
         :return: True if the directory is part of the P4 file structure, otherwise False.
         """
@@ -1207,6 +1212,7 @@ class CustomSave(P4MayaModule):
             message = string_error if not continue_save else string_default
             cmds.displayString(string_key, replace=True, value=message)
 
+        self._handler.refresh()
         Om.MScriptUtil.setBool(ret_code, continue_save)
 
     def __check_open_file(self) -> (bool, [str]):
@@ -1776,4 +1782,91 @@ class P4MayaFactory:
         return window, master_layout, tabs_layout
 
 
-factory = P4MayaFactory()
+############################################################################################################
+# ########################################### SET-UP GUIDE ############################################### #
+############################################################################################################
+
+class SetUpGuide(object):
+    def __init__(self):
+        self.__window = cmds.window(title="Missing Python Library")
+        main_layout = cmds.formLayout()
+        self.__content = cmds.columnLayout(p=main_layout)
+        button_layout = cmds.rowLayout(nc=2, p=main_layout)
+        self.__back = cmds.button(l="Back", c=lambda _: self.__prev_screen())
+        self.__next = cmds.button(l="Next", c=lambda _: self.__next_screen(), bgc=BLUE_COLOUR)
+        cmds.setParent("..")
+
+        cmds.formLayout(main_layout, e=True, af={(self.__content, "top", 10), (self.__content, "left", 10),
+                                                 (self.__content, "right", 10), (button_layout, "bottom", 10),
+                                                 (button_layout, "right", 10)},
+                        ac={(button_layout, "top", 10, self.__content)})
+
+        self.__index = 0
+        self.__max_index = 6
+        self.__show_screen(self.__index)
+        cmds.showWindow(self.__window)
+
+    def __show_screen(self, index: int):
+        if index > self.__max_index:
+            cmds.deleteUI(self.__window)
+            return
+
+        cmds.deleteUI(self.__content)
+        self.__content = cmds.columnLayout()
+
+        cmds.button(self.__back, e=True, vis=(index != 0))
+        cmds.button(self.__next, e=True, l="Next" if (index != self.__max_index) else "Finish")
+
+        if index == 0:
+            self.__initial_screen()
+        elif index == 1:
+            self.__interpreter_settings()
+        elif index == 2:
+            self.__maya_interpreter()
+        elif index == 3:
+            self.__add_package()
+        elif index == 4:
+            self.__p4python_package()
+        elif index == 5:
+            self.__install_package()
+        elif index == 6:
+            self.__restart_maya()
+
+    def __initial_screen(self):
+        cmds.text(l="initial", p=self.__content)
+
+    def __interpreter_settings(self):
+        cmds.text(l="settings", p=self.__content)
+
+    def __maya_interpreter(self):
+        cmds.text(l="maya interp", p=self.__content)
+
+    def __add_package(self):
+        cmds.text(l="add", p=self.__content)
+
+    def __install_package(self):
+        cmds.text(l="install", p=self.__content)
+
+    def __p4python_package(self):
+        cmds.text(l="p4python", p=self.__content)
+
+    def __restart_maya(self):
+        cmds.text(l="restart", p=self.__content)
+
+    def __next_screen(self):
+        self.__index += 1
+        self.__show_screen(self.__index)
+
+    def __prev_screen(self):
+        self.__index -= 1
+        self.__show_screen(self.__index)
+
+
+############################################################################################################
+# ############################################### MAIN ################################################### #
+############################################################################################################
+
+if p4_installed:
+    factory = P4MayaFactory()
+else:
+    setup = SetUpGuide()
