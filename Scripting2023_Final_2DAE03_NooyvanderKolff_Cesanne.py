@@ -1792,25 +1792,36 @@ class P4MayaFactory:
 
 class SetUpGuide(object):
     def __init__(self):
-        self.__window = cmds.window(title="Missing Python Library")
-        main_layout = cmds.formLayout(w=430)
+        self.__window = cmds.window(title="Missing Python Package")
+        main_layout = cmds.formLayout(w=470)
         self.__content = cmds.columnLayout(p=main_layout, adj=True, cat=("both", 10))
 
         cmds.text(l="Missing Python Package!", fn="boldLabelFont")
         cmds.text(l="", h=10)
         cmds.text(l="To use this script, p4python needs to be installed to your Maya installation. \nTo do so follow"
                     " these simple steps:", ww=True, al="left")
-        cmds.text(l="", h=10)
+        cmds.text(l="", h=15)
+
         cmds.text(l="1. Find your mayapy.exe location. On Windows, this is normally located in:", al="left")
-        cmds.text(l=r"   C:\Program Files\Autodesk\Maya2022\bin", fn="fixedWidthFont", al="left")
-        cmds.text(l="", h=5)
+        cmds.rowLayout(nc=1, cat=(1, "both", 10), adj=1)
+        cmds.textField(text=r"C:\Program Files\Autodesk\Maya2022\bin", fn="fixedWidthFont", ed=False)
+        cmds.setParent("..")
+
+        cmds.text(l="", h=3)
         cmds.text(l="2. Open up a command line window or Powershell.", al='left')
-        cmds.text(l="", h=5)
-        cmds.text(l="3. Navigate to the mayapy location by using 'cd' followed by the path: ", al="left")
-        cmds.text(l=r"   cd 'C:\Program Files\Autodesk\Maya2022\bin'", fn="fixedWidthFont", al="left")
-        cmds.text(l="", h=5)
+
+        cmds.text(l="", h=8)
+        cmds.text(l="3. Navigate to the mayapy location in Powershell by using 'cd' followed by the path: ", al="left")
+        cmds.rowLayout(nc=1, cat=(1, "both", 10), adj=1)
+        cmds.textField(text=r"cd 'C:\Program Files\Autodesk\Maya2022\bin'", fn="fixedWidthFont", ed=False)
+        cmds.setParent("..")
+
+        cmds.text(l="", h=3)
         cmds.text(l=r"4. Use the following command to install p4python:", al="left")
-        cmds.text(l=r"   .\mayapy -m pip install p4python", fn="fixedWidthFont", al="left")
+        cmds.rowLayout(nc=1, cat=(1, "both", 10), adj=1)
+        cmds.textField(text=r".\mayapy -m pip install p4python", fn="fixedWidthFont", ed=False)
+        cmds.setParent("..")
+
         cmds.text(l="", h=5)
         cmds.text(l="5. Restart Maya and rerun the script. You should now be good to go! :)", al="left")
 
@@ -1820,9 +1831,9 @@ class SetUpGuide(object):
         cmds.setParent("..")
 
         cmds.formLayout(main_layout, e=True, af={(self.__content, "top", 10), (self.__content, "left", 10),
-                                                 (self.__content, "right", 10), (button_layout, "bottom", 10),
+                                                 (self.__content, "right", 10), (button_layout, "bottom", 15),
                                                  (button_layout, "right", 10)},
-                        ac={(button_layout, "top", 20, self.__content)})
+                        ac={(button_layout, "top", 25, self.__content)})
 
         cmds.showWindow(self.__window)
 
