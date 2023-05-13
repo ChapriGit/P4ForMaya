@@ -41,6 +41,7 @@ P4 For Maya: Automatic adding and checking out of Perforce Maya files from withi
 import json
 import os
 import re
+import math
 
 from abc import ABC, abstractmethod
 from datetime import datetime, timedelta
@@ -114,7 +115,10 @@ class CollapsableRow(object):
         cmds.columnLayout(bgc=[0.27, 0.27, 0.27], cat=["both", 5], adj=True)
         cmds.rowLayout(h=2)
         cmds.setParent("..")
-        cmds.text(l=description, ww=True, al="left", fn="smallFixedWidthFont", w=250)
+        desc_text = cmds.text(l=description, ww=True, al="left", fn="smallFixedWidthFont", w=250)
+        if len(description) > 60:
+            height = math.ceil(len(description)/33) * 18
+            cmds.text(desc_text, e=True, h=height)
         form = cmds.formLayout()
         button = cmds.button(l=button_label, bgc=BLUE_COLOUR, c=button_command)
         cmds.formLayout(form, e=True, af={(button, "top", 5), (button, "right", 0),
