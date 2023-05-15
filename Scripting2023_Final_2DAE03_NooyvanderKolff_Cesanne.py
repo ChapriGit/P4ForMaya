@@ -42,6 +42,7 @@ import json
 import os
 import re
 import math
+import subprocess
 
 from abc import ABC, abstractmethod
 from datetime import datetime, timedelta
@@ -1793,40 +1794,19 @@ class P4MayaFactory:
 class SetUpGuide(object):
     def __init__(self):
         self.__window = cmds.window(title="Missing Python Package")
-        main_layout = cmds.formLayout(w=470)
+        main_layout = cmds.formLayout(w=420)
         self.__content = cmds.columnLayout(p=main_layout, adj=True, cat=("both", 10))
 
         cmds.text(l="Missing Python Package!", fn="boldLabelFont")
         cmds.text(l="", h=10)
-        cmds.text(l="To use this script, p4python needs to be installed to your Maya installation. \nTo do so follow"
-                    " these simple steps:", ww=True, al="left")
+        cmds.text(l="To use this script, p4python needs to be installed to your Maya installation. \n"
+                    "Would you like to install them now?", al="left")
         cmds.text(l="", h=15)
+        cmds.text(l="After installing, Maya will need to be restarted for the changes to go into effect.", al="left",
+                  fn="obliqueLabelFont")
 
-        cmds.text(l="1. Find your mayapy.exe location. On Windows, this is normally located in:", al="left")
-        cmds.rowLayout(nc=1, cat=(1, "both", 10), adj=1)
-        cmds.textField(text=r"C:\Program Files\Autodesk\Maya2022\bin", fn="fixedWidthFont", ed=False)
-        cmds.setParent("..")
-
-        cmds.text(l="", h=3)
-        cmds.text(l="2. Open up a command line window or Powershell.", al='left')
-
-        cmds.text(l="", h=8)
-        cmds.text(l="3. Navigate to the mayapy location in Powershell by using 'cd' followed by the path: ", al="left")
-        cmds.rowLayout(nc=1, cat=(1, "both", 10), adj=1)
-        cmds.textField(text=r"cd 'C:\Program Files\Autodesk\Maya2022\bin'", fn="fixedWidthFont", ed=False)
-        cmds.setParent("..")
-
-        cmds.text(l="", h=3)
-        cmds.text(l=r"4. Use the following command to install p4python:", al="left")
-        cmds.rowLayout(nc=1, cat=(1, "both", 10), adj=1)
-        cmds.textField(text=r".\mayapy -m pip install p4python", fn="fixedWidthFont", ed=False)
-        cmds.setParent("..")
-
-        cmds.text(l="", h=5)
-        cmds.text(l="5. Restart Maya and rerun the script. You should now be good to go! :)", al="left")
-
-        button_layout = cmds.rowLayout(nc=2, p=main_layout)
-        cmds.button(l="Exit Maya", c=lambda _: cmds.quit(), bgc=BLUE_COLOUR)
+        button_layout = cmds.rowLayout(nc=2, p=main_layout, cat=(1, "right", 10))
+        cmds.button(l="Install Package", c=lambda _: self.__install_p4python(), bgc=BLUE_COLOUR)
         cmds.button(l="Close Window", c=lambda _: cmds.deleteUI(self.__window))
         cmds.setParent("..")
 
@@ -1834,6 +1814,32 @@ class SetUpGuide(object):
                                                  (self.__content, "right", 10), (button_layout, "bottom", 15),
                                                  (button_layout, "right", 10)},
                         ac={(button_layout, "top", 25, self.__content)})
+
+        cmds.showWindow(self.__window)
+
+    def __install_p4python(self):
+        cmds.deleteUI(self.__window)
+
+        path = os.path.join(cmds.internalVar(mid=True), r"bin\mayapy.exe")
+        subprocess.run([path, "-m", "pip", "install", "p4python"])
+
+        self.__window = cmds.window(title="P4Python Installed")
+        main_layout = cmds.formLayout(w=300)
+        self.__content = cmds.columnLayout(p=main_layout, adj=True, cat=("both", 10))
+        cmds.text(l="P4Python install successful!", fn="boldLabelFont")
+        cmds.text(l="", h=10)
+        cmds.text(l="The python package was successfully installed. For the changes to go into effect, Maya needs to "
+                    "be restarted. After this, you can run the script as normal.", ww=True, al="left")
+
+        button_layout = cmds.rowLayout(nc=2, p=main_layout, cat=(1, "right", 10))
+        cmds.button(l="Quit Maya", c=lambda _: cmds.quit(), bgc=BLUE_COLOUR)
+        cmds.button(l="Close Window", c=lambda _: cmds.deleteUI(self.__window))
+        cmds.setParent("..")
+
+        cmds.formLayout(main_layout, e=True, af={(self.__content, "top", 10), (self.__content, "left", 10),
+                                                 (self.__content, "right", 10), (button_layout, "bottom", 15),
+                                                 (button_layout, "right", 10)},
+                        ac={(button_layout, "top", 15, self.__content)})
 
         cmds.showWindow(self.__window)
 
