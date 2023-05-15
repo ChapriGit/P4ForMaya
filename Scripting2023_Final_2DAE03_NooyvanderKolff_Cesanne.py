@@ -975,13 +975,14 @@ class CustomSave(P4MayaModule):
 
         # Set up the naming option.
         cmds.rowLayout(nc=2, cat={(1, "left", 5), (2, "left", 5)})
-        cmds.checkBox(v=self.__options.get("check_naming"), l="",
-                      cc=lambda val: self.__set_variable("check_naming", val))
+        naming_checkbox = cmds.checkBox(v=self.__options.get("check_naming"), l="")
         cmds.text(l="Naming Convention")
         cmds.setParent("..")
 
         # Set up the radio buttons for specifying the naming convention
-        cmds.columnLayout(adj=True, cat=("left", 25))
+        naming_options_layout = cmds.columnLayout(adj=True, cat=("left", 25))
+        cmds.checkBox(naming_checkbox, e=True, cc=lambda val: self.__set_naming(val, naming_options_layout))
+        self.__set_naming(self.__options.get("check_naming"), naming_options_layout)
         collection = cmds.radioCollection()
 
         # Simple approach
@@ -1017,15 +1018,28 @@ class CustomSave(P4MayaModule):
         cmds.setParent("..")
 
         # Set up the directory option.
-        cmds.rowLayout(nc=4, adj=3, cat={(1, "left", 5), (2, "left", 5), (3, "left", 5), (4, "left", 5)})
-        cmds.checkBox(v=self.__options.get("check_directory"), l="",
-                      cc=lambda val: self.__set_variable("check_directory", val))
-        cmds.text(l="Directory")
+        cmds.rowLayout(nc=2, cat={(1, "left", 5), (2, "left", 5)})
+        options = cmds.checkBox(v=self.__options.get("check_directory"), l="")
+        cmds.text(l="Directory Convention")
+        cmds.setParent("..")
+        cmds.rowLayout(nc=2, adj=1, cat={(1, "left", 25), (2, "left", 5)})
         dir_field = cmds.textField(text=self.__options.get("directory"), pht="Maya Files Directory",
                                    tcc=lambda val: self.__set_variable("directory", val))
+        browse = cmds.button(l="Browse", c=lambda _: self.__browse(dir_field))
 
-        cmds.button(l="Browse", c=lambda _: self.__browse(dir_field))
+        cmds.checkBox(options, e=True, cc=lambda val: self.__set_directory(val, dir_field, browse))
+        self.__set_directory(self.__options.get("check_directory"), dir_field, browse)
+
         cmds.setParent("..")
+
+    def __set_directory(self, val, dir_field, browse):
+        self.__set_variable("check_directory", val)
+        cmds.textField(dir_field, e=True, en=val)
+        cmds.button(browse, e=True, en=val)
+
+    def __set_naming(self, val, layout):
+        self.__set_variable("check_naming", val)
+        cmds.columnLayout(layout, e=True, en=val)
 
     def __set_naming_simple(self, prefix: str, suffix: str, val: bool):
         """
@@ -1799,7 +1813,7 @@ class SetUpGuide(object):
 
         cmds.text(l="Missing Python Package!", fn="boldLabelFont")
         cmds.text(l="", h=10)
-        cmds.text(l="To use this script, p4python needs to be installed to your Maya installation. \n"
+        cmds.text(l="To use this script, P4Python needs to be installed to your Maya installation. \n"
                     "Would you like to install them now?", al="left")
         cmds.text(l="", h=15)
         cmds.text(l="After installing, Maya will need to be restarted for the changes to go into effect.", al="left",
