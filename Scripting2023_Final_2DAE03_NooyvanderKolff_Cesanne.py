@@ -740,7 +740,7 @@ class Rollback(P4MayaModule):
                 if log_msg == "":
                     log_msg = "File History could not be retrieved because of an unknown error."
 
-            if log_msg.endswith("no such file(s)."):
+            if log_msg.endswith("no such file(s).") or "not under client's root" in log_msg:
                 return []
 
             # If not just not found, display the error in the log.
@@ -1199,11 +1199,14 @@ class CustomSave(P4MayaModule):
                         # Cancel saving if set to Error out.
                         if self.__state is CustomSave.CheckType.ERROR:
                             self._handler.p4_release()
+                            WarningWindow(warnings, MessageType.ERROR)
                             string_error = f"{len(warnings)} Checks failed. See the log for more information. " \
                                            f"Saving Canceled."
                             cmds.displayString(string_key, replace=True, value=string_error)
                             Om.MScriptUtil.setBool(ret_code, False)
                             return
+
+                        WarningWindow(warnings, MessageType.WARNING)
 
                 # Add or check out the file from P4.
                 file = cmds.file(q=True, sn=True)
@@ -1386,6 +1389,7 @@ class P4Bar(object):
         self.__ui = ""                              # The UI of the docked window.
 
         self.__connected_icon = ""                  # The iconTextButton displaying the connection icon.
+        self.__fake_menu = ""
         self.__connected_text = ""                  # The text indicating whether the tool is connected.
         self.__log = []                             # An array containing all previously logged messages.
         self.__log_field = ""                       # The text field displaying the last logged message.
@@ -1402,7 +1406,8 @@ class P4Bar(object):
         :param P4MayaControl handler: The P4MayaControl object to be used.
         """
         self.__handler = handler
-        cmds.iconTextButton(self.__connected_icon, e=True, c=self.__handler.open_window)
+        # cmds.iconTextButton(self.__connected_icon, e=True, c=self.__handler.open_window)
+        cmds.popupMenu(self.__fake_menu, e=True, pmc=lambda _, __: self.__handler.open_window())
 
     def set_connected(self, connected: bool):
         """
@@ -1470,6 +1475,7 @@ class P4Bar(object):
         cmds.menuItem(l="File History",  c=lambda _: self.__handler.open_tab(1))
         cmds.menuItem(l="Saving Criteria", c=lambda _: self.__handler.open_tab(2))
         cmds.menuItem(l="Submit", c=lambda _: self.__handler.open_tab(3))
+        self.__fake_menu = cmds.popupMenu(b=1)
 
         # Create the connection display.
         self.__connected_icon = cmds.iconTextButton(style="iconOnly", i="confirm.png", h=18, w=18)
@@ -1798,6 +1804,33 @@ class P4MayaFactory:
                                                    (tabs_layout, "left", 0)])
 
         return window, master_layout, tabs_layout
+
+
+############################################################################################################
+# ########################################## WARNING WINDOW ############################################## #
+############################################################################################################
+
+class WarningWindow(object):
+    def __init__(self, warnings, msg_type):
+        self.__window = cmds.window(title="Saving Criteria Failed", w=400, h=310)
+        cmds.columnLayout(h=300, adj=True)
+        self.__log_display = cmds.scrollField(h=300, wordWrap=True, ed=False)
+        self.__log = []
+
+        for w in warnings:
+            self.__update_log(w, msg_type)
+
+        cmds.showWindow(self.__window)
+
+    def __update_log(self, log_message: str, msg_type: MessageType):
+        """
+        Updates the log with the new message and message type.
+        :param log_message: The message to log.
+        :param msg_type: The MessageType of the logged message.
+        """
+        self.__log.append(f">> [{msg_type.name}] " + log_message)
+        log = "\n\n".join(self.__log)
+        cmds.scrollField(self.__log_display, e=True, text=log)
 
 
 ############################################################################################################
