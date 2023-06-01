@@ -713,7 +713,7 @@ class ChangeLog(P4MayaModule):
             message = inst.errors
             if message == "":
                 message = inst.warnings
-            self._handler.send_to_log("Could not submit. " + message, MessageType.ERROR)
+            self._handler.send_to_log(message, MessageType.ERROR)
 
         finally:
             self._handler.p4_release()
@@ -802,7 +802,63 @@ class Rollback(P4MayaModule):
         return revisions
 
     def __rollback(self, revision):
-        pass
+        connected = self._handler.is_connected()
+        if not connected:
+            cmds.confirmDialog(title="Error", m="Didn't think this was possible, but you are not connected to P4, yet "
+                                                "pressed the revert. Please first connect.",
+                               icn="critical")
+            self._handler.send_to_log("Could not revert. Not connected to P4.", MessageType.ERROR)
+            return
+
+        # Check if the file is opened. If user does not want stuff to be reverted: Return
+        if not self.__check_revert():
+            return
+
+        # Actually roll back
+        print("Reverted")
+
+    def __check_revert(self):
+        # Revert changes if any still in submit -> Give a warning with choice!
+        file = os.path.realpath(cmds.file(q=True, sn=True))
+        try:
+            self._handler.p4_connect()
+            p4 = self._handler.p4
+            opened_changes = p4.run_opened()
+
+            opened_files = []
+            for f in opened_changes:
+                file_path = p4.run("where", f.get("depotFile"))[0]
+                opened_files.append(file_path.get("path"))
+
+        except P4Exception as inst:
+            message = inst.errors
+            if message == "":
+                message = inst.warnings
+            self._handler.send_to_log(message, MessageType.ERROR)
+            self._handler.p4_release()
+            return False
+
+        if file in opened_files:
+            revert = cmds.confirmDialog(title='Confirm', message='The file is currently still opened by P4. Any changes'
+                                                                 ' to the file will be reverted and will not be '
+                                                                 'submitted. Are you sure you want to proceed?',
+                                        button=['Yes', 'No'], defaultButton='No', cancelButton='No', icn="critical")
+            if revert != "Yes":
+                return False
+
+            # Revert
+            try:
+                p4.run("revert", file)
+                self._handler.p4_release()
+            except P4Exception as inst:
+                message = inst.errors
+                if message == "":
+                    message = inst.warnings
+                self._handler.send_to_log(message, MessageType.ERROR)
+                self._handler.p4_release()
+                return False
+
+        return True
 
     def _create_ui(self, master_layout):
         # Set up the main UI layout.
@@ -873,7 +929,8 @@ class Rollback(P4MayaModule):
             dt_string = date.strftime("%d/%m/%Y %H:%M")
             header = [r.get("nr"), r.get("changelist"), dt_string, r.get("user")]
 
-            row = CollapsableRow(self.__scroll_field, header, w_header, r.get("description"), "Get This Revision")
+            row = CollapsableRow(self.__scroll_field, header, w_header, r.get("description"), "Get This Revision",
+                                 lambda _: self.__rollback(r.get("nr")))
             if collapse:
                 row.collapse()
                 collapse = False
@@ -882,7 +939,6 @@ class Rollback(P4MayaModule):
         return "File History"
 
 
-# TODO: Log the checks
 class CustomSave(P4MayaModule):
     """
     A module pertaining to saving and P4. It allows for automatic adding and checking out of files and to first check
