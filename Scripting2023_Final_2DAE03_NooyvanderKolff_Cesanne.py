@@ -946,11 +946,11 @@ class CustomSave(P4MayaModule):
         cmds.setParent(form)
 
         # Set up of the path options.
-        self.__naming = cmds.frameLayout(l="Naming & Folder Structure", p=form)
+        self.__naming = cmds.frameLayout(l="Check Naming & Folder Structure", p=form)
         self.__create_naming_frame(self.__naming)
 
         # Set up of the geometry options.
-        self.__geometry = cmds.frameLayout(l="Geometry", p=form)
+        self.__geometry = cmds.frameLayout(l="Check Geometry", p=form)
         self.__create_geometry_frame(self.__geometry)
 
         # Add to form layout.
@@ -1725,20 +1725,19 @@ class PreferenceHandler:
         with open(file, "w") as f:
             f.write(json.dumps(self.__preferences))
 
-        # Create a variable for the file location to find it back upon restart.
-        cmds.optionVar(sv=(self.__OPTION_VAR_NAME, file))
-
     def __load_pref(self):
         """
         Loads the preferences into the preference handler.
         """
-        if cmds.optionVar(ex=self.__OPTION_VAR_NAME):
-            path = cmds.optionVar(q=self.__OPTION_VAR_NAME)
+        path = cmds.internalVar(upd=True)
+        file = os.path.join(path, self.__PREF_FILE_NAME)
 
-            # if found, then load in the preferences saved.
-            if os.path.exists(path):
-                with open(path, "r") as f:
-                    self.__preferences = json.loads(f.readline())
+        # if found, then load in the preferences saved.
+        if os.path.exists(file):
+            with open(file, "r") as f:
+                self.__preferences = json.loads(f.readline())
+        else:
+            WelcomePopup()
 
 
 class P4MayaFactory:
@@ -1807,7 +1806,7 @@ class P4MayaFactory:
 
 class SetUpGuide(object):
     def __init__(self):
-        self.__window = cmds.window(title="Missing Python Package")
+        self.__window = cmds.window(title="Missing Python Package", w=420)
         main_layout = cmds.formLayout(w=420)
         self.__content = cmds.columnLayout(p=main_layout, adj=True, cat=("both", 10))
 
@@ -1837,7 +1836,7 @@ class SetUpGuide(object):
         path = os.path.join(cmds.internalVar(mid=True), r"bin\mayapy.exe")
         subprocess.run([path, "-m", "pip", "install", "p4python"])
 
-        self.__window = cmds.window(title="P4Python Installed")
+        self.__window = cmds.window(title="P4Python Installed", w=300)
         main_layout = cmds.formLayout(w=300)
         self.__content = cmds.columnLayout(p=main_layout, adj=True, cat=("both", 10))
         cmds.text(l="P4Python install successful!", fn="boldLabelFont")
@@ -1854,6 +1853,37 @@ class SetUpGuide(object):
                                                  (self.__content, "right", 10), (button_layout, "bottom", 15),
                                                  (button_layout, "right", 10)},
                         ac={(button_layout, "top", 15, self.__content)})
+
+        cmds.showWindow(self.__window)
+
+
+############################################################################################################
+# ########################################## WELCOME POP-UP ############################################## #
+############################################################################################################
+
+class WelcomePopup(object):
+    def __init__(self):
+        self.__window = cmds.window(title="Welcome to P4 for Maya", w=350, h=200)
+        main_layout = cmds.formLayout(w=350, h=200)
+        self.__content = cmds.columnLayout(p=main_layout, adj=True, h=120)
+
+        cmds.text(l="Welcome to P4 for Maya!", fn="boldLabelFont")
+        cmds.text(l="", h=10)
+        cmds.text(l="P4 for Maya is now all set up and ready to use! You will find an added bar at the bottom"
+                    " of your screen with all that you will need.", al="left", ww=True,)
+        cmds.text(l="", h=15)
+        cmds.text(l="To get to the settings, click on the connection symbol or right-click to immediately open "
+                    "a specific tab.", al="left", ww=True,
+                  fn="obliqueLabelFont")
+
+        button_layout = cmds.rowLayout(nc=2, p=main_layout, cat=(1, "right", 10))
+        cmds.button(l="Close Window", c=lambda _: cmds.deleteUI(self.__window))
+        cmds.setParent("..")
+
+        cmds.formLayout(main_layout, e=True, af={(self.__content, "top", 10), (self.__content, "left", 10),
+                                                 (self.__content, "right", 10), (button_layout, "bottom", 15),
+                                                 (button_layout, "right", 10)},
+                        ac={(button_layout, "top", 25, self.__content)})
 
         cmds.showWindow(self.__window)
 
