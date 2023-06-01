@@ -514,6 +514,7 @@ class ChangeLog(P4MayaModule):
     """
     def __init__(self, master_layout, handler):
         super().__init__(master_layout, handler)
+        self.__files = []
 
     def _create_ui(self, master_layout):
         # Create the overarching layout.
@@ -541,7 +542,7 @@ class ChangeLog(P4MayaModule):
         cmds.setParent(self._ui)
         desc_label = cmds.text(l="Description:")
         self.__commit_msg = cmds.scrollField(h=100)
-        submit_button = cmds.button(w=100, bgc=BLUE_COLOUR, l="Submit")
+        submit_button = cmds.button(w=100, bgc=BLUE_COLOUR, l="Submit", c=lambda _: self.__submit())
         cmds.formLayout(self._ui, e=True, af={(desc_label, "left", margin_side + 5),
                                               (submit_button, "right", margin_side),
                                               (self.__commit_msg, "left", margin_side),
@@ -587,7 +588,9 @@ class ChangeLog(P4MayaModule):
         # Create the actual table.
         cmds.rowColumnLayout(nc=4, adj=3, cw=[(1, 20), (2, 40), (4, 90)], cat=[(1, "left", 5)],
                              cs=[(1, 5), (2, 5), (3, 5), (4, 5)])
+        # Reset any possible previous values.
         self.__checkboxes = []
+        self.__files = []
 
         # For each entry, create a row.
         for f in changelist:
@@ -597,6 +600,7 @@ class ChangeLog(P4MayaModule):
             file = f.get("file")
             modified_time = f.get("last_modified")
 
+            self.__files.append(file)
             self.__checkboxes.append(cmds.checkBox(l="", v=True))
             cmds.text(l=action)
             cmds.textField(text=file, ed=False)
@@ -670,7 +674,51 @@ class ChangeLog(P4MayaModule):
             cmds.checkBox(checkbox, e=True, v=val)
 
     def __submit(self):
-        pass
+        connected = self._handler.is_connected()
+        if not connected:
+            cmds.confirmDialog(title="Error", m="You are not connected to P4. Please first connect.",
+                               icn="critical")
+            self._handler.send_to_log("Could not submit. Not connected to P4.", MessageType.ERROR)
+            return
+
+        description = cmds.scrollField(self.__commit_msg, q=True, text=True)
+        if not description:
+            cmds.confirmDialog(title="Error", m="No description provided. Please fill in a description.",
+                               icn="critical")
+            self._handler.send_to_log("Could not submit. No description provided.", MessageType.ERROR)
+            return
+
+        files_to_submit = []
+
+        cmds.waitCursor(state=True)
+
+        for i in range(len(self.__checkboxes)):
+            ch = self.__checkboxes[i]
+            if cmds.checkBox(ch, q=True, v=True):
+                files_to_submit.append(self.__files[i])
+
+        try:
+            p4 = self._handler.p4
+            self._handler.p4_connect()
+
+            change = p4.fetch_change()              # Creates a new changelist
+            change._description = description       # Set the description
+            change._files = files_to_submit         # Add the right files
+            p4.run_submit(change)                   # Submit
+
+            cmds.scrollField(self.__commit_msg, e=True, text="")
+            self._handler.refresh()
+
+        except P4Exception as inst:
+            message = inst.errors
+            if message == "":
+                message = inst.warnings
+            self._handler.send_to_log("Could not submit. " + message, MessageType.ERROR)
+
+        finally:
+            self._handler.p4_release()
+
+        cmds.waitCursor(state=False)
 
     def refresh(self):
         cmds.deleteUI(self.__list)
@@ -745,7 +793,7 @@ class Rollback(P4MayaModule):
 
             # If not just not found, display the error in the log.
             msg_type = MessageType.ERROR
-            self._send_to_log(log_msg, msg_type)
+            self._send_to_log("Could not retrieve file's history. " + log_msg, msg_type)
             return []
 
         finally:
