@@ -212,12 +212,22 @@ class Connector(P4MayaModule):
                         log_msg = "Something went wrong. P4 connection broken. Please, check your network connection."
                     msg_type = MessageType.WARNING
 
-                    self.__set_p4(False, True)
+                    self.__set_p4(False)
                     self.log_connection(log_msg)
                     self._send_to_log(log_msg, msg_type)
 
+                    cmds.scriptJob(e=["idle", lambda: self.__kill_script_job()], ro=True)
+
                 finally:
                     self._handler.p4_release()
+
+    def __kill_script_job(self):
+        """
+        Kills the current script job. Don't call from the script job itself.
+        """
+        if self.__job:
+            cmds.scriptJob(kill=int(self.__job))
+            self.__job = ""
 
     def __connect(self):
         """
@@ -265,6 +275,8 @@ class Connector(P4MayaModule):
                 log_msg = f"The {incorrect_key} given does not exist. Please try again."
                 msg_type = MessageType.ERROR
 
+            p4.disconnect()
+
         except P4Exception as inst:
             # Catch error and display it.
             log_msg = "\n".join(inst.errors)
@@ -273,9 +285,6 @@ class Connector(P4MayaModule):
                           "server you provided."
             msg_type = MessageType.ERROR
 
-        finally:
-            p4.disconnect()
-
         # Send the message to own log.
         self.log_connection(log_msg)
 
@@ -283,9 +292,6 @@ class Connector(P4MayaModule):
         connected = msg_type is not MessageType.ERROR
         if (not self.__job) and connected:
             self.__job = cmds.scriptJob(e=["idle", lambda: self.__check_connection()])
-        elif self.__job and not connected:
-            cmds.scriptJob(kill=self.__job)
-            self.__job = ""
 
         # Propagate to the handler.
         self.__set_p4(connected)
@@ -311,11 +317,10 @@ class Connector(P4MayaModule):
         log = "\n\n".join(self.__log)
         cmds.scrollField(self.__log_display, e=True, text=log)
 
-    def __set_p4(self, connected: bool, on_job: bool = False):
+    def __set_p4(self, connected: bool):
         """
         Sets the P4 connection to the specified connection.
         :param connected: True if connection to P4 can be established with the given parameters.
-        :param on_job: True if called from the script job connected to the script. By default, False.
         """
         # Get the parameters.
         port = cmds.textField(self.__port, q=True, text=True)
@@ -327,10 +332,6 @@ class Connector(P4MayaModule):
             self.__pref_handler.set_pref(self.__NAME, "P4PORT", port)
             self.__pref_handler.set_pref(self.__NAME, "P4USER", user)
             self.__pref_handler.set_pref(self.__NAME, "P4CLIENT", client)
-
-        if not connected and self.__job and not on_job:
-            cmds.scriptJob(kill=self.__job)
-            self.__job = ""
 
         # Propagate the P4 connection and status.
         self._handler.change_connection(port, user, client, connected)
@@ -427,11 +428,10 @@ class Connector(P4MayaModule):
             for c in avail_clients:
                 if c.get("Host") == p4.host:
                     clients.append(c.get("client"))
+
+            p4.disconnect()
         except P4Exception:
             clients = ["Please login to P4."]
-
-        finally:
-            p4.disconnect()
 
         return port, user, client, clients
 
