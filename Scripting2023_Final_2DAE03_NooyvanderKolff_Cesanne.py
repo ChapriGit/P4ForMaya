@@ -710,10 +710,10 @@ class ChangeLog(P4MayaModule):
             self._handler.refresh()
 
         except P4Exception as inst:
-            message = inst.errors
-            if message == "":
-                message = inst.warnings
-            self._handler.send_to_log(message, MessageType.ERROR)
+            log_msg = "\n".join(inst.errors)
+            if log_msg == "":
+                log_msg = "\n".join(inst.warnings)
+            self._handler.send_to_log(log_msg, MessageType.ERROR)
 
         finally:
             self._handler.p4_release()
@@ -815,7 +815,31 @@ class Rollback(P4MayaModule):
             return
 
         # Actually roll back
-        print("Reverted")
+        file_path = os.path.realpath(cmds.file(q=True, sn=True))
+        try:
+            self._handler.p4_connect()
+            p4 = self._handler.p4
+            cmds.waitCursor(state=True)
+            file = p4.run("where", file_path)
+            depot_file = file[0].get("clientFile")
+
+            version = depot_file + "#" + str(revision + 1)
+            p4.run("sync", version)
+            p4.run("edit", depot_file)
+            p4.run("resolve", "-ay", depot_file)
+
+        except P4Exception as inst:
+            log_msg = "\n".join(inst.errors)
+            if log_msg == "":
+                log_msg = "\n".join(inst.warnings)
+            self._handler.send_to_log(log_msg, MessageType.ERROR)
+
+        finally:
+            self._handler.p4_release()
+            cmds.waitCursor(state=False)
+
+        cmds.file(file_path, o=True, f=True)
+        self._handler.refresh()
 
     def __check_revert(self):
         # Revert changes if any still in submit -> Give a warning with choice!
@@ -831,10 +855,10 @@ class Rollback(P4MayaModule):
                 opened_files.append(file_path.get("path"))
 
         except P4Exception as inst:
-            message = inst.errors
-            if message == "":
-                message = inst.warnings
-            self._handler.send_to_log(message, MessageType.ERROR)
+            log_msg = "\n".join(inst.errors)
+            if log_msg == "":
+                log_msg = "\n".join(inst.warnings)
+            self._handler.send_to_log(log_msg, MessageType.ERROR)
             self._handler.p4_release()
             return False
 
@@ -851,10 +875,10 @@ class Rollback(P4MayaModule):
                 p4.run("revert", file)
                 self._handler.p4_release()
             except P4Exception as inst:
-                message = inst.errors
-                if message == "":
-                    message = inst.warnings
-                self._handler.send_to_log(message, MessageType.ERROR)
+                log_msg = "\n".join(inst.errors)
+                if log_msg == "":
+                    log_msg = "\n".join(inst.warnings)
+                self._handler.send_to_log(log_msg, MessageType.ERROR)
                 self._handler.p4_release()
                 return False
 
@@ -1322,13 +1346,12 @@ class CustomSave(P4MayaModule):
                         p4.run("edit", file)
 
             except P4Exception as inst:
-
                 # Handle P4Exception by canceling saving and informing the user.
-                message = inst.errors
-                if message == "":
-                    message = inst.warnings
-                self._handler.send_to_log(message, MessageType.ERROR)
-                string_error = f"Saving canceled. \n {message}"
+                log_msg = "\n".join(inst.errors)
+                if log_msg == "":
+                    log_msg = "\n".join(inst.warnings)
+                self._handler.send_to_log(log_msg, MessageType.ERROR)
+                string_error = f"Saving canceled. \n {log_msg}"
                 continue_save = False
 
             finally:
