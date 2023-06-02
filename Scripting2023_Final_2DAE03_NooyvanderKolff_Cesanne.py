@@ -826,6 +826,7 @@ class Rollback(P4MayaModule):
             version = depot_file + "#" + str(revision + 1)
             p4.run("sync", version)
             p4.run("edit", depot_file)
+            p4.run("sync", depot_file)
             p4.run("resolve", "-ay", depot_file)
 
         except P4Exception as inst:
