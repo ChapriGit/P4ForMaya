@@ -1,42 +1,6 @@
 """
-P4 For Maya: Automatic adding and checking out of Perforce Maya files from within Maya.
-    Core functionality:
-        - Connecting
-            Errors:
-                - Workspace does not exist
-                - User does not exist
-                - Can't connect to server
-                - ...
-        - Intercepting saving to add and/or check out files
-            Errors:
-                - Someone else has the file checked out (In our case always exclusive, though technically .ma is text..)
-    Extra functionality:
-        - Revert current changes
-            Errors:
-                - File not saved yet -> Not on P4
-        - Submitting changed files
-            - Add description
-            - Deselect files for submit
-            - Keeps track of changelist even when Maya closed in between
-            - Creates new one if old one got submitted or is not pending anymore
-            - Get pending changelist
-            Errors:
-                - I don't really know yet, but probably a lot of them :P
-        - Checking of conventions
-            - Naming conventions: Regex
-            - Geometry:
-                - Non-manifold
-                - ngons
-                - Overlapping
-                - Zero-length
-                - Concave
-                - ...
-
-                - Intersecting
-            - Textures on P4
-        - Rolling back files to previous versions
-        - Get Latest of file
-
+P4 For Maya: Automatic adding and checking out of Perforce Maya files from within Maya with checks before saving.
+Also allows for rolling back of the current maya file and submitting of changes.
 """
 import json
 import os
@@ -48,14 +12,14 @@ from abc import ABC, abstractmethod
 from datetime import datetime, timedelta
 from enum import Enum
 
+from maya import cmds, OpenMaya as Om, mel
+import maya.api.OpenMaya as Api_Om
+
 try:
     p4_installed = True
     from P4 import P4, P4Exception
 except ModuleNotFoundError as e:
     p4_installed = False
-
-from maya import cmds, OpenMaya as Om, mel
-import maya.api.OpenMaya as Api_Om
 
 
 BLUE_COLOUR = [0.2, 0.85, 0.98]         # Blue button colour.
@@ -135,7 +99,7 @@ class CollapsableRow(object):
         """
         self.__visible = not self.__visible
         collapse_img = 'arrowRight.png' if not self.__visible else 'arrowDown.png'
-        cmds.iconTextButton(self.__arrow, e=True, image=collapse_img)
+        cmds.iconTextButton(self.__arrow, e=True, i=collapse_img)
         cmds.rowLayout(self.__description, e=True, vis=self.__visible)
 
 
@@ -242,7 +206,7 @@ class Connector(P4MayaModule):
                     p4.run("login", "-s")
 
                 except P4Exception as inst:
-                    # Throw the warning and kill the script job if not able to connect anymore.
+                    # Throw the warning.
                     log_msg = "\n".join(inst.errors)
                     if log_msg == "":
                         log_msg = "Something went wrong. P4 connection broken. Please, check your network connection."
@@ -674,6 +638,10 @@ class ChangeLog(P4MayaModule):
             cmds.checkBox(checkbox, e=True, v=val)
 
     def __submit(self):
+        """
+        Submit the current default changelist.
+        """
+        # Check whether P4 is even connected.
         connected = self._handler.is_connected()
         if not connected:
             cmds.confirmDialog(title="Error", m="You are not connected to P4. Please first connect.",
@@ -681,6 +649,7 @@ class ChangeLog(P4MayaModule):
             self._handler.send_to_log("Could not submit. Not connected to P4.", MessageType.ERROR)
             return
 
+        # Check whether the description has been filled in.
         description = cmds.scrollField(self.__commit_msg, q=True, text=True)
         if not description:
             cmds.confirmDialog(title="Error", m="No description provided. Please fill in a description.",
@@ -688,10 +657,11 @@ class ChangeLog(P4MayaModule):
             self._handler.send_to_log("Could not submit. No description provided.", MessageType.ERROR)
             return
 
+        # Start the submitting.
         files_to_submit = []
-
         cmds.waitCursor(state=True)
 
+        # Find all files to submit.
         for i in range(len(self.__checkboxes)):
             ch = self.__checkboxes[i]
             if cmds.checkBox(ch, q=True, v=True):
@@ -701,14 +671,17 @@ class ChangeLog(P4MayaModule):
             p4 = self._handler.p4
             self._handler.p4_connect()
 
+            # Create the changelist and submit.
             change = p4.fetch_change()              # Creates a new changelist
             change._description = description       # Set the description
             change._files = files_to_submit         # Add the right files
             p4.run_submit(change)                   # Submit
 
+            # Refresh the UI.
             cmds.scrollField(self.__commit_msg, e=True, text="")
             self._handler.refresh()
 
+        # Catch P4Exceptions
         except P4Exception as inst:
             log_msg = "\n".join(inst.errors)
             if log_msg == "":
@@ -801,7 +774,11 @@ class Rollback(P4MayaModule):
 
         return revisions
 
-    def __rollback(self, revision):
+    def __rollback(self, revision: int):
+        """
+        Rolls back the currently opened file to the given revision.
+        :param revision: The revision number to roll back to.
+        """
         connected = self._handler.is_connected()
         if not connected:
             cmds.confirmDialog(title="Error", m="Didn't think this was possible, but you are not connected to P4, yet "
@@ -810,11 +787,11 @@ class Rollback(P4MayaModule):
             self._handler.send_to_log("Could not revert. Not connected to P4.", MessageType.ERROR)
             return
 
-        # Check if the file is opened. If user does not want stuff to be reverted: Return
+        # Check if the file is opened. If user does not want stuff to be reverted: Return.
         if not self.__check_revert():
             return
 
-        # Actually roll back
+        # Actually roll back.
         file_path = os.path.realpath(cmds.file(q=True, sn=True))
         try:
             self._handler.p4_connect()
@@ -823,12 +800,20 @@ class Rollback(P4MayaModule):
             file = p4.run("where", file_path)
             depot_file = file[0].get("clientFile")
 
-            version = depot_file + "#" + str(revision + 1)
-            p4.run("sync", version)
-            p4.run("edit", depot_file)
-            p4.run("sync", depot_file)
-            p4.run("resolve", "-ay", depot_file)
+            # Only roll back if it's not the latest version -> Otherwise P4 throws errors.
+            file_info = p4.run("files", depot_file)[0]
+            head_rev = int(file_info.get("rev"))
+            if revision != head_rev:
+                version = depot_file + "#" + str(revision)          # Set up the version of the file to be synced to.
 
+                p4.run("sync", version)                             # Get the revision.
+                p4.run("edit", depot_file)                          # Check out the file.
+                p4.run("sync", depot_file)                          # Sync to the latest.
+                p4.run("resolve", "-ay", depot_file)                # Resolve the conflict by accepting the new file.
+            self._send_to_log(os.path.basename(file_path) + " has been reverted back to revision " + str(revision),
+                              MessageType.LOG)
+
+        # Catch any P4 exceptions.
         except P4Exception as inst:
             log_msg = "\n".join(inst.errors)
             if log_msg == "":
@@ -839,10 +824,16 @@ class Rollback(P4MayaModule):
             self._handler.p4_release()
             cmds.waitCursor(state=False)
 
+        # Refresh the file and the UI.
         cmds.file(file_path, o=True, f=True)
         self._handler.refresh()
 
     def __check_revert(self):
+        """
+        Checks whether the file was opened in P4 or has unsaved changes. Asks the user whether they want to continue
+         and reverts accordingly.
+        :return: True if the user decided to continue or no changes were found. Otherwise, False.
+        """
         # Revert changes if any still in submit -> Give a warning with choice!
         file = os.path.realpath(cmds.file(q=True, sn=True))
         try:
@@ -850,11 +841,13 @@ class Rollback(P4MayaModule):
             p4 = self._handler.p4
             opened_changes = p4.run_opened()
 
+            # Get the opened file paths.
             opened_files = []
             for f in opened_changes:
                 file_path = p4.run("where", f.get("depotFile"))[0]
                 opened_files.append(file_path.get("path"))
 
+        # Catch any P4 exceptions.
         except P4Exception as inst:
             log_msg = "\n".join(inst.errors)
             if log_msg == "":
@@ -863,10 +856,12 @@ class Rollback(P4MayaModule):
             self._handler.p4_release()
             return False
 
+        # Check if the file was opened.
         if file in opened_files:
-            revert = cmds.confirmDialog(title='Confirm', message='The file is currently still opened by P4. Any changes'
+            revert = cmds.confirmDialog(title='Confirm', message='The file has unsubmitted changes. Any changes'
                                                                  ' to the file will be reverted and will not be '
-                                                                 'submitted. Are you sure you want to proceed?',
+                                                                 'saved, nor submitted. Are you sure you want to '
+                                                                 'proceed?',
                                         button=['Yes', 'No'], defaultButton='No', cancelButton='No', icn="critical")
             if revert != "Yes":
                 return False
@@ -881,6 +876,16 @@ class Rollback(P4MayaModule):
                     log_msg = "\n".join(inst.warnings)
                 self._handler.send_to_log(log_msg, MessageType.ERROR)
                 self._handler.p4_release()
+                return False
+
+        # Check if the file was modified.
+        elif cmds.file(q=True, modified=True):
+            revert = cmds.confirmDialog(title='Confirm', message='The file has unsubmitted changes. Any changes'
+                                                                 ' to the file will be reverted and will not be '
+                                                                 'saved, nor submitted. Are you sure you want to '
+                                                                 'proceed?',
+                                        button=['Yes', 'No'], defaultButton='No', cancelButton='No', icn="critical")
+            if revert != "Yes":
                 return False
 
         return True
@@ -955,7 +960,7 @@ class Rollback(P4MayaModule):
             header = [r.get("nr"), r.get("changelist"), dt_string, r.get("user")]
 
             row = CollapsableRow(self.__scroll_field, header, w_header, r.get("description"), "Get This Revision",
-                                 lambda _: self.__rollback(r.get("nr")))
+                                 lambda _, i=r.get("nr"): self.__rollback(i))
             if collapse:
                 row.collapse()
                 collapse = False
@@ -987,7 +992,7 @@ class CustomSave(P4MayaModule):
         """
         # Set up the default values.
         self.__pref_handler = pref_handler              # The preference handler.
-        self.__state = CustomSave.CheckType.ERROR       # State of what to do with errors on checks.
+        self.__state = CustomSave.CheckType.WARNING       # State of what to do with errors on checks.
         self.__options = {}                             # The dictionary containing all savable variables.
         self.__options.update({
             "outside_p4": False,
@@ -1340,11 +1345,14 @@ class CustomSave(P4MayaModule):
                 # Add or check out the file from P4.
                 file = cmds.file(q=True, sn=True)
                 dir_name = os.path.dirname(file)
+                file_name = os.path.basename(file)
                 if self.p4_in_workspace(p4, dir_name):
                     if not self.p4_exists(p4, file):
                         p4.run("add", file)
+                        self._send_to_log(file_name + " was marked for add.", MessageType.LOG)
                     else:
                         p4.run("edit", file)
+                        self._send_to_log(file_name + " is checked out.", MessageType.LOG)
 
             except P4Exception as inst:
                 # Handle P4Exception by canceling saving and informing the user.
@@ -1861,7 +1869,7 @@ class PreferenceHandler:
 
     def __load_pref(self):
         """
-        Loads the preferences into the preference handler.
+        Loads the preferences into the preference handler. Starts a welcome window if no preference file was found.
         """
         path = cmds.internalVar(upd=True)
         file = os.path.join(path, self.__PREF_FILE_NAME)
@@ -1939,7 +1947,15 @@ class P4MayaFactory:
 ############################################################################################################
 
 class WarningWindow(object):
-    def __init__(self, warnings, msg_type):
+    """
+    A simple window displaying any warnings found.
+    """
+    def __init__(self, warnings: [str], msg_type: MessageType):
+        """
+        Initialises a warning window.
+        :param warnings: The warnings to be displayed.
+        :param msg_type: The type of messages to be displayed.
+        """
         self.__window = cmds.window(title="Saving Criteria Failed", w=400, h=310)
         cmds.columnLayout(h=300, adj=True)
         self.__log_display = cmds.scrollField(h=300, wordWrap=True, ed=False)
@@ -1966,11 +1982,19 @@ class WarningWindow(object):
 ############################################################################################################
 
 class SetUpGuide(object):
+    """
+    Displays an installation option for P4Python within Maya.
+    """
     def __init__(self):
+        """
+        Initialises the Setup guide.
+        """
+        # Create the initial window.
         self.__window = cmds.window(title="Missing Python Package", w=420)
         main_layout = cmds.formLayout(w=420)
         self.__content = cmds.columnLayout(p=main_layout, adj=True, cat=("both", 10))
 
+        # Content of initial window.
         cmds.text(l="Missing Python Package!", fn="boldLabelFont")
         cmds.text(l="", h=10)
         cmds.text(l="To use this script, P4Python needs to be installed to your Maya installation. \n"
@@ -1979,6 +2003,7 @@ class SetUpGuide(object):
         cmds.text(l="After installing, Maya will need to be restarted for the changes to go into effect.", al="left",
                   fn="obliqueLabelFont")
 
+        # Set up the buttons.
         button_layout = cmds.rowLayout(nc=2, p=main_layout, cat=(1, "right", 10))
         cmds.button(l="Install Package", c=lambda _: self.__install_p4python(), bgc=BLUE_COLOUR)
         cmds.button(l="Close Window", c=lambda _: cmds.deleteUI(self.__window))
@@ -1992,11 +2017,16 @@ class SetUpGuide(object):
         cmds.showWindow(self.__window)
 
     def __install_p4python(self):
+        """
+        Installs P4Python to Maya and shows a final window when ready.
+        """
         cmds.deleteUI(self.__window)
 
+        # Install P4Python.
         path = os.path.join(cmds.internalVar(mid=True), r"bin\mayapy.exe")
         subprocess.run([path, "-m", "pip", "install", "p4python"])
 
+        # Create window.
         self.__window = cmds.window(title="P4Python Installed", w=300)
         main_layout = cmds.formLayout(w=300)
         self.__content = cmds.columnLayout(p=main_layout, adj=True, cat=("both", 10))
@@ -2005,6 +2035,7 @@ class SetUpGuide(object):
         cmds.text(l="The python package was successfully installed. For the changes to go into effect, Maya needs to "
                     "be restarted. After this, you can run the script as normal.", ww=True, al="left")
 
+        # Create buttons.
         button_layout = cmds.rowLayout(nc=2, p=main_layout, cat=(1, "right", 10))
         cmds.button(l="Quit Maya", c=lambda _: cmds.quit(), bgc=BLUE_COLOUR)
         cmds.button(l="Close Window", c=lambda _: cmds.deleteUI(self.__window))
@@ -2023,7 +2054,13 @@ class SetUpGuide(object):
 ############################################################################################################
 
 class WelcomePopup(object):
+    """
+    A welcome window for on first start-up.
+    """
     def __init__(self):
+        """
+        Initialises the welcome window.
+        """
         self.__window = cmds.window(title="Welcome to P4 for Maya", w=350, h=200)
         main_layout = cmds.formLayout(w=350, h=200)
         self.__content = cmds.columnLayout(p=main_layout, adj=True, h=120)
