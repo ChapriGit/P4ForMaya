@@ -568,7 +568,9 @@ class ChangeLog(P4MayaModule):
             self.__checkboxes.append(cmds.checkBox(l="", v=True))
             cmds.text(l=action)
             cmds.textField(text=file, ed=False)
-            if modified_time is not None:
+            if modified_time == "Not Found":
+                dt_string = "Not Found"
+            elif modified_time is not None:
                 dt_string = modified_time.strftime("%d/%m/%Y %H:%M")
             else:
                 dt_string = ""
@@ -610,9 +612,12 @@ class ChangeLog(P4MayaModule):
                         local_path = f.get("clientFile")
                         local_path = local_path.partition("//" + p4.client + "/")[2]
 
-                        path = os.path.join(root, local_path)
-                        last_modified_time = os.path.getmtime(path)
-                        last_modified = datetime.fromtimestamp(last_modified_time)
+                        try:
+                            path = os.path.join(root, local_path)
+                            last_modified_time = os.path.getmtime(path)
+                            last_modified = datetime.fromtimestamp(last_modified_time)
+                        except FileNotFoundError:
+                            last_modified = "Not Found"
                     else:
                         last_modified = None
 
@@ -1370,8 +1375,8 @@ class CustomSave(P4MayaModule):
             message = string_error if not continue_save else string_default
             cmds.displayString(string_key, replace=True, value=message)
 
-        self._handler.refresh()
         Om.MScriptUtil.setBool(ret_code, continue_save)
+        cmds.scriptJob(ro=True, e=["idle", self._handler.refresh])
 
     def __check_open_file(self) -> (bool, [str]):
         """
@@ -1412,8 +1417,7 @@ class CustomSave(P4MayaModule):
             filename = os.path.basename(path)
             pure_filename = os.path.splitext(filename)[0]
             if not re.match(pattern, filename) and not re.match(pattern, pure_filename):
-                warning.append(f"The naming convention with pattern {self.__options.get('naming_convention')} "
-                               f"is not being respected.")
+                warning.append(f"The naming convention is not being respected.")
                 success = False
 
         # Check the directory convention.
@@ -1990,8 +1994,8 @@ class SetUpGuide(object):
         Initialises the Setup guide.
         """
         # Create the initial window.
-        self.__window = cmds.window(title="Missing Python Package", w=420)
-        main_layout = cmds.formLayout(w=420)
+        self.__window = cmds.window(title="Missing Python Package", w=420, h=150)
+        main_layout = cmds.formLayout(w=420, h=150)
         self.__content = cmds.columnLayout(p=main_layout, adj=True, cat=("both", 10))
 
         # Content of initial window.
@@ -2027,8 +2031,8 @@ class SetUpGuide(object):
         subprocess.run([path, "-m", "pip", "install", "p4python"])
 
         # Create window.
-        self.__window = cmds.window(title="P4Python Installed", w=300)
-        main_layout = cmds.formLayout(w=300)
+        self.__window_2 = cmds.window(title="P4Python Installed", w=300, h=150)
+        main_layout = cmds.formLayout(w=300, h=150)
         self.__content = cmds.columnLayout(p=main_layout, adj=True, cat=("both", 10))
         cmds.text(l="P4Python install successful!", fn="boldLabelFont")
         cmds.text(l="", h=10)
@@ -2038,7 +2042,7 @@ class SetUpGuide(object):
         # Create buttons.
         button_layout = cmds.rowLayout(nc=2, p=main_layout, cat=(1, "right", 10))
         cmds.button(l="Quit Maya", c=lambda _: cmds.quit(), bgc=BLUE_COLOUR)
-        cmds.button(l="Close Window", c=lambda _: cmds.deleteUI(self.__window))
+        cmds.button(l="Close Window", c=lambda _: cmds.deleteUI(self.__window_2))
         cmds.setParent("..")
 
         cmds.formLayout(main_layout, e=True, af={(self.__content, "top", 10), (self.__content, "left", 10),
@@ -2046,7 +2050,7 @@ class SetUpGuide(object):
                                                  (button_layout, "right", 10)},
                         ac={(button_layout, "top", 15, self.__content)})
 
-        cmds.showWindow(self.__window)
+        cmds.showWindow(self.__window_2)
 
 
 ############################################################################################################
