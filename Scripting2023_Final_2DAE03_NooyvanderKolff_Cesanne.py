@@ -2009,7 +2009,7 @@ class SetUpGuide(object):
 
         # Set up the buttons.
         button_layout = cmds.rowLayout(nc=2, p=main_layout, cat=(1, "right", 10))
-        cmds.button(l="Install Package", c=lambda _: self.__install_p4python(), bgc=BLUE_COLOUR)
+        cmds.button(l="Install Package", c=lambda _: self.__start_install(), bgc=BLUE_COLOUR)
         cmds.button(l="Close Window", c=lambda _: cmds.deleteUI(self.__window))
         cmds.setParent("..")
 
@@ -2020,11 +2020,14 @@ class SetUpGuide(object):
 
         cmds.showWindow(self.__window)
 
+    def __start_install(self):
+        cmds.deleteUI(self.__window)
+        cmds.scriptJob(ro=True, e=["idle", self.__install_p4python])
+
     def __install_p4python(self):
         """
         Installs P4Python to Maya and shows a final window when ready.
         """
-        cmds.deleteUI(self.__window)
 
         # Install P4Python.
         path = os.path.join(cmds.internalVar(mid=True), r"bin\mayapy.exe")
