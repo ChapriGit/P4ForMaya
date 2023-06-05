@@ -12,6 +12,7 @@ from abc import ABC, abstractmethod
 from datetime import datetime, timedelta
 from enum import Enum
 
+import typing
 from maya import cmds, OpenMaya as Om, mel
 import maya.api.OpenMaya as Api_Om
 
@@ -833,7 +834,7 @@ class Rollback(P4MayaModule):
         cmds.file(file_path, o=True, f=True)
         self._handler.refresh()
 
-    def __check_revert(self):
+    def __check_revert(self) -> bool:
         """
         Checks whether the file was opened in P4 or has unsaved changes. Asks the user whether they want to continue
          and reverts accordingly.
@@ -1286,7 +1287,7 @@ class CustomSave(P4MayaModule):
             return False
 
     @staticmethod
-    def p4_in_workspace(p4, path: str):
+    def p4_in_workspace(p4, path: str) -> bool:
         """
         Checks whether a directory path is part of the P4 file structure.
         :param P4 p4: The connected P4 connection.
@@ -1841,7 +1842,7 @@ class PreferenceHandler:
         self.__preferences = {}     # A dictionary containing all the preferences
         self.__load_pref()
 
-    def get_pref(self, class_key: str, var_key: str):
+    def get_pref(self, class_key: str, var_key: str) -> typing.Any:
         """
         Gets the preferences for a specific variable of a specific class.
         :param class_key: The key indicating the class to which the variable belongs.
